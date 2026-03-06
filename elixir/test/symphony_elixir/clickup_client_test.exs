@@ -88,6 +88,101 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       assert issue.assignee_id == nil
     end
 
+    test "normalizes integer priorities, string assignee ids, and invalid timestamps defensively" do
+      # Arrange
+      task = %{
+        "id" => "task-3b",
+        "name" => "Edge task",
+        "status" => %{"status" => "todo"},
+        "priority" => %{"id" => 4},
+        "assignees" => [%{"id" => "user-7"}],
+        "tags" => [%{"name" => nil}],
+        "date_created" => "not-a-timestamp",
+        "date_updated" => :bad,
+        "dependencies" => []
+      }
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert issue.priority == 4
+      assert issue.assignee_id == "user-7"
+      assert issue.labels == []
+      assert issue.created_at == nil
+      assert issue.updated_at == nil
+    end
+
+    test "returns nil priority for out-of-range string priority id" do
+      # Arrange
+      task = %{
+        "id" => "task-p",
+        "name" => "Bad priority",
+        "status" => %{"status" => "open"},
+        "priority" => %{"id" => "99"},
+        "tags" => [],
+        "dependencies" => []
+      }
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert issue.priority == nil
+    end
+
+    test "returns empty labels when tags key is absent" do
+      # Arrange
+      task = %{
+        "id" => "task-no-tags",
+        "name" => "No tags key",
+        "status" => %{"status" => "open"},
+        "dependencies" => []
+      }
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert issue.labels == []
+    end
+
+    test "returns empty blockers and deps when task has no id key" do
+      # Arrange
+      task = %{
+        "name" => "No id task",
+        "status" => %{"status" => "open"},
+        "tags" => []
+      }
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert issue.blocked_by == []
+      assert issue.id == nil
+    end
+
+    test "parses integer timestamps" do
+      # Arrange
+      task = %{
+        "id" => "task-int-ts",
+        "name" => "Integer timestamps",
+        "status" => %{"status" => "open"},
+        "tags" => [],
+        "dependencies" => [],
+        "date_created" => 1_677_000_000_000,
+        "date_updated" => 1_677_100_000_000
+      }
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert %DateTime{} = issue.created_at
+      assert %DateTime{} = issue.updated_at
+    end
+
     test "extracts blocked_by from dependencies with type 0 (waiting on)" do
       # Arrange — type 0 means current task is waiting on depends_on task
       task = %{
@@ -129,6 +224,28 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
   end
 
   describe "fetch_issues_by_states/2" do
+    test "returns missing token error when auth is unavailable" do
+      # Arrange
+      clickup_workflow!(token: nil)
+
+      # Act
+      result = Client.fetch_issues_by_states(["review"])
+
+      # Assert
+      assert {:error, :missing_tracker_api_token} = result
+    end
+
+    test "returns missing project id error when list_id is absent" do
+      # Arrange
+      clickup_workflow!(list_id: nil)
+
+      # Act
+      result = Client.fetch_issues_by_states(["review"])
+
+      # Assert
+      assert {:error, :missing_tracker_project_id} = result
+    end
+
     test "returns normalized issues filtered by given states" do
       # Arrange
       clickup_workflow!()
@@ -166,6 +283,54 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
   end
 
   describe "fetch_issue_states_by_ids/2" do
+    test "returns missing token error when auth is unavailable" do
+      # Arrange
+      clickup_workflow!(token: nil)
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"])
+
+      # Assert
+      assert {:error, :missing_tracker_api_token} = result
+    end
+
+    test "returns error when a fetched task payload is not a map" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        if url =~ "/task/t-1" do
+          {:ok, %{status: 200, body: ["bad"]}}
+        else
+          flunk("unexpected dependency request for malformed task payload")
+        end
+      end
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun)
+
+      # Assert
+      assert {:error, {:clickup_api_status, 200}} = result
+    end
+
+    test "returns dependency transport errors during reconciliation" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" -> {:error, :timeout}
+          url =~ "/task/t-1" -> {:ok, %{status: 200, body: %{"id" => "t-1", "name" => "One", "status" => %{"status" => "done"}, "tags" => []}}}
+        end
+      end
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun)
+
+      # Assert
+      assert {:error, {:clickup_api_request, :timeout}} = result
+    end
+
     test "fetches individual tasks by ID" do
       # Arrange
       clickup_workflow!()
@@ -253,9 +418,61 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       # Assert
       assert {:error, {:clickup_api_status, 404}} = result
     end
+
+    test "returns transport error when task fetch encounters a connection failure" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, _url, _headers, _body ->
+        {:error, :econnrefused}
+      end
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun)
+
+      # Assert
+      assert {:error, {:clickup_api_request, :econnrefused}} = result
+    end
+
+    test "returns exit error when async task fetch times out" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, _url, _headers, _body ->
+        Process.sleep(:infinity)
+      end
+
+      # Act
+      result =
+        Client.fetch_issue_states_by_ids(["t-1"],
+          request_fun: request_fun,
+          async_timeout: 1
+        )
+
+      # Assert
+      assert {:error, {:clickup_task_fetch_exit, _reason}} = result
+    end
   end
 
   describe "rest/4" do
+    test "accepts atom methods for direct REST calls" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, headers, body ->
+        assert url =~ "/task/t-1"
+        assert Enum.any?(headers, fn {k, _v} -> k == "Authorization" end)
+        assert body == nil
+        {:ok, %{status: 200, body: %{"id" => "t-1"}}}
+      end
+
+      # Act
+      result = Client.rest(:get, "/task/t-1", nil, request_fun: request_fun)
+
+      # Assert
+      assert {:ok, %{"id" => "t-1"}} = result
+    end
+
     test "sends authenticated request and returns body on success" do
       # Arrange
       clickup_workflow!()
@@ -317,6 +534,81 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "returns missing project id error when list_id is absent" do
+      # Arrange
+      clickup_workflow!(list_id: nil)
+
+      # Act
+      result = Client.fetch_candidate_issues()
+
+      # Assert
+      assert {:error, :missing_tracker_project_id} = result
+    end
+
+    test "returns accumulated issues when task list payload is malformed on a later page" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        if url =~ "page=0" do
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "tasks" => [
+                 %{"id" => "t-1", "name" => "Task one", "status" => %{"status" => "Todo"}, "tags" => [], "dependencies" => []}
+               ]
+             }
+           }}
+        else
+          {:ok, %{status: 200, body: %{"unexpected" => []}}}
+        end
+      end
+
+      # Act
+      result = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert {:ok, [%Issue{id: "t-1"}]} = result
+    end
+
+    test "returns empty blockers when dependency endpoint returns 200 without dependencies array" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            {:ok, %{status: 200, body: %{"something_else" => []}}}
+
+          url =~ "/list/list-900/task" and url =~ "page=0" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "tasks" => [
+                   %{
+                     "id" => "t-1",
+                     "name" => "Task one",
+                     "status" => %{"status" => "Todo"},
+                     "tags" => []
+                   }
+                 ]
+               }
+             }}
+
+          url =~ "/list/list-900/task" ->
+            {:ok, %{status: 200, body: %{"tasks" => []}}}
+        end
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.blocked_by == []
+    end
+
     test "returns normalized issues from ClickUp list endpoint" do
       # Arrange
       clickup_workflow!()
@@ -422,6 +714,38 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       assert :counters.get(call_count, 1) == 2
     end
 
+    test "handles tasks with no id or dependencies key via catch-all" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        if url =~ "page=0" do
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "tasks" => [
+                 %{
+                   "name" => "No id task",
+                   "status" => %{"status" => "Todo"},
+                   "tags" => []
+                 }
+               ]
+             }
+           }}
+        else
+          {:ok, %{status: 200, body: %{"tasks" => []}}}
+        end
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.id == nil
+      assert issue.blocked_by == []
+    end
+
     test "returns error on transport failure" do
       # Arrange
       clickup_workflow!()
@@ -487,6 +811,47 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
 
       # Assert
       assert {:error, {:clickup_api_status, 401}} = result
+    end
+
+    test "returns exit error when async dependency fetch times out" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            Process.sleep(:infinity)
+
+          url =~ "/list/list-900/task" and url =~ "page=0" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "tasks" => [
+                   %{
+                     "id" => "t-1",
+                     "name" => "Slow dep task",
+                     "status" => %{"status" => "Todo"},
+                     "tags" => []
+                   }
+                 ]
+               }
+             }}
+
+          url =~ "/list/list-900/task" ->
+            {:ok, %{status: 200, body: %{"tasks" => []}}}
+        end
+      end
+
+      # Act
+      result =
+        Client.fetch_candidate_issues(
+          request_fun: request_fun,
+          async_timeout: 1
+        )
+
+      # Assert
+      assert {:error, {:clickup_dependency_fetch_exit, _reason}} = result
     end
   end
 end

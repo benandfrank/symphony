@@ -19,8 +19,7 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
-| Testing | `mix.exs` coverage ignore includes `SymphonyElixir.ClickUp.Client`; revisit once client tests are strengthened enough to remove the remaining ignore entry | Tracker abstraction Phase 2 review | — | 2026-03-05 |
-| Process | Phase work stacked on `feat/tracker-abstraction-phase-1` rather than per-phase branch split; document exception or split before merge | Tracker abstraction Phase 2 review | — | 2026-03-05 |
+
 
 ## Closed
 
@@ -36,3 +35,5 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 | Config | Deprecated `Config.linear_*` compatibility aliases | Removed deprecated compatibility getters after tracker-agnostic call sites were in place. | — | 2026-03-06 |
 | ClickUp | Blocker detection was best-effort only via inline task `dependencies` | Added dependency-endpoint fallback when task payloads omit `dependencies`; updated tests and reference docs. | — | 2026-03-06 |
 | Testing | `mix.exs` coverage ignore included `SymphonyElixir.ClickUp.Adapter` | Added direct adapter tests and removed `ClickUp.Adapter` from the ignore list. | — | 2026-03-06 |
+| Process | Phase work stacked on `feat/tracker-abstraction-phase-1` rather than per-phase branch split | Documented the exception in the PR body and merged with explicit reviewer guidance about stacked phases. | — | 2026-03-06 |
+| Testing | `mix.exs` coverage ignore included `SymphonyElixir.ClickUp.Client` (~89% direct coverage) | Extracted `default_request/4` to `ClickUp.HTTP` module, added `on_timeout: :kill_task` for testable async exits, added injectable `async_timeout` opt, wrote tests for all 13 uncovered lines. Module now at 100% and removed from ignore list. | — | 2026-03-05 |
