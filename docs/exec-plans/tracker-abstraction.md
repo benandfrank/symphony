@@ -95,8 +95,8 @@ These items do **not** mean a phase is incomplete. They are post-plan cleanup / 
 - **Phase 2:** reduce coverage-ignore entries for `SymphonyElixir.ClickUp.Client`.
 - **Phase 3:** no remaining phase-blocking follow-ups from the reviewed DynamicTool work.
 - **Phase 4:** no remaining phase-blocking follow-ups from the observability/prompt/doc cleanup.
-- **Process debt:** the planned per-phase branch split was not followed; document the exception in
-  the PR body.
+- **Process debt:** resolved for this branch by documenting the stacked-phase exception in the PR
+  body; no remaining implementation follow-up is required here.
 
 ---
 
