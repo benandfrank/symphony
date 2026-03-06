@@ -3,7 +3,11 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
 
   alias SymphonyElixir.Codex.DynamicTool
 
-  test "tool_specs advertises the linear_graphql input contract" do
+  test "tool_specs advertises linear_graphql for linear tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act / Assert
     assert [
              %{
                "description" => description,
@@ -20,6 +24,46 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
            ] = DynamicTool.tool_specs()
 
     assert description =~ "Linear"
+  end
+
+  test "tool_specs advertises clickup_api for clickup tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "clickup",
+      tracker_api_token: "ck_test",
+      tracker_list_id: "list-1",
+      tracker_project_slug: nil
+    )
+
+    # Act / Assert
+    assert [
+             %{
+               "description" => description,
+               "inputSchema" => %{
+                 "properties" => %{
+                   "body" => _,
+                   "method" => _,
+                   "path" => _
+                 },
+                 "required" => ["method", "path"],
+                 "type" => "object"
+               },
+               "name" => "clickup_api"
+             }
+           ] = DynamicTool.tool_specs()
+
+    assert description =~ "ClickUp"
+  end
+
+  test "tool_specs returns an empty list for memory tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    # Act
+    specs = DynamicTool.tool_specs()
+
+    # Assert
+    assert specs == []
   end
 
   test "unsupported tools return a failure payload with the supported tool list" do
@@ -374,5 +418,327 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
                "text" => ":ok"
              }
            ] = response["contentItems"]
+  end
+
+  test "clickup_api executes a guarded request and returns structured output" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "clickup",
+      tracker_api_token: "ck_test",
+      tracker_list_id: "list-1",
+      tracker_project_slug: nil
+    )
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "POST", "path" => "/task/task-1/comment", "body" => %{"comment_text" => "hello"}},
+        clickup_client: fn method, path, body, opts ->
+          assert {method, path, body, opts} == {"POST", "/task/task-1/comment", %{"comment_text" => "hello"}, []}
+          {:ok, %{"id" => "comment-1"}}
+        end
+      )
+
+    # Assert
+    assert response["success"] == true
+
+    assert [
+             %{
+               "text" => text
+             }
+           ] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{"id" => "comment-1"}
+  end
+
+  test "clickup_api rejects disallowed methods" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "DELETE", "path" => "/task/task-1"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{"message" => "`clickup_api.method` must be one of: GET, POST, PUT."}
+           }
+  end
+
+  test "clickup_api rejects paths outside allowlist" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET", "path" => "/user/me"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{"message" => "`clickup_api.path` is not allowed. Allowed prefixes: /task/, /list/, /team/."}
+           }
+  end
+
+  test "clickup_api rejects GET requests with body" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET", "path" => "/task/task-1", "body" => %{"x" => 1}})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{"message" => "`clickup_api.body` is not allowed for GET requests."}
+           }
+  end
+
+  test "clickup_api redacts transport errors" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "GET", "path" => "/task/task-1"},
+        clickup_client: fn _method, _path, _body, _opts ->
+          {:error, {:clickup_api_request, {:tls_alert, "secret-token-leak"}}}
+        end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "ClickUp API request failed before receiving a successful response.",
+               "reason" => "transport_error"
+             }
+           }
+  end
+
+  test "unsupported tools include current tracker supported tool list" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("linear_graphql", %{})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => ~s(Unsupported dynamic tool: "linear_graphql".),
+               "supportedTools" => ["clickup_api"]
+             }
+           }
+  end
+
+  test "execute returns a clear error when tracker_kind is nil" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: nil)
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET", "path" => "/task/t1"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "Tracker not configured. Set `tracker.kind` in `WORKFLOW.md`.",
+               "supportedTools" => []
+             }
+           }
+  end
+
+  test "clickup_api rejects non-map arguments" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", "not a map")
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api` expects an object with required `method` and `path`, plus optional `body`."
+             }
+           }
+  end
+
+  test "clickup_api rejects missing method" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"path" => "/task/task-1"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api.method` is required. Allowed values: GET, POST, PUT."
+             }
+           }
+  end
+
+  test "clickup_api rejects missing path" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api.path` is required and must be non-empty."
+             }
+           }
+  end
+
+  test "clickup_api rejects non-map body" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "POST", "path" => "/task/task-1", "body" => "string"})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api.body` must be a JSON object when provided."
+             }
+           }
+  end
+
+  test "clickup_api rejects oversized request body" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+    large_body = %{"data" => String.duplicate("x", 11_000)}
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "POST", "path" => "/task/task-1", "body" => large_body})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api.body` exceeds size limit."
+             }
+           }
+  end
+
+  test "clickup_api rejects oversized response" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "GET", "path" => "/task/task-1"},
+        clickup_client: fn _m, _p, _b, _o ->
+          {:ok, %{"data" => String.duplicate("x", 51_000)}}
+        end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "`clickup_api` response exceeds size limit."
+             }
+           }
+  end
+
+  test "clickup_api surfaces missing tracker auth" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "GET", "path" => "/task/task-1"},
+        clickup_client: fn _m, _p, _b, _o ->
+          {:error, :missing_tracker_api_token}
+        end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "Symphony is missing tracker auth. Set `tracker.api_key` in `WORKFLOW.md` or export the tracker API key env var."
+             }
+           }
+  end
+
+  test "clickup_api surfaces HTTP status errors" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "GET", "path" => "/task/task-1"},
+        clickup_client: fn _m, _p, _b, _o ->
+          {:error, {:clickup_api_status, 429}}
+        end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "ClickUp API request failed with HTTP 429.",
+               "status" => 429
+             }
+           }
+  end
+
+  test "clickup_api redacts unknown error reasons" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "clickup_api",
+        %{"method" => "GET", "path" => "/task/task-1"},
+        clickup_client: fn _m, _p, _b, _o ->
+          {:error, :something_unexpected}
+        end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{
+               "message" => "ClickUp API tool execution failed.",
+               "reason" => "redacted"
+             }
+           }
   end
 end
