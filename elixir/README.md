@@ -13,15 +13,15 @@ This directory contains the current Elixir/OTP implementation of Symphony, based
 
 ## How it works
 
-1. Polls Linear for candidate work
+1. Polls the configured tracker for candidate work
 2. Creates an isolated workspace per issue
 3. Launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside the
    workspace
 4. Sends a workflow prompt to Codex
 5. Keeps Codex working on the issue until the work is done
 
-During app-server sessions, Symphony also serves a client-side `linear_graphql` tool so that repo
-skills can make raw Linear GraphQL calls.
+During app-server sessions, Symphony can also serve a tracker-specific client-side tool:
+`linear_graphql` for Linear and `clickup_api` for ClickUp.
 
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces.
@@ -30,18 +30,21 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 
 1. Make sure your codebase is set up to work well with agents: see
    [Harness engineering](https://openai.com/index/harness-engineering/).
-2. Get a new personal token in Linear via Settings → Security & access → Personal API keys, and
-   set it as the `LINEAR_API_KEY` environment variable.
+2. Configure tracker auth for your selected backend.
+   - Linear: create a personal API key and set `LINEAR_API_KEY`.
+   - ClickUp: create an API token and set `CLICKUP_API_KEY`.
 3. Copy this directory's `WORKFLOW.md` to your repo.
-4. Optionally copy the `commit`, `push`, `pull`, `land`, and `linear` skills to your repo.
+4. Optionally copy the `commit`, `push`, `pull`, `land`, and tracker skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL
      operations such as comment editing or upload flows.
+   - The `clickup` skill expects Symphony's `clickup_api` app-server tool for guarded ClickUp REST
+     operations.
 5. Customize the copied `WORKFLOW.md` file for your project.
-   - To get your project's slug, right-click the project and copy its URL. The slug is part of the
-     URL.
-   - When creating a workflow based on this repo, note that it depends on non-standard Linear
-     issue statuses: "Rework", "Human Review", and "Merging". You can customize them in
-     Team Settings → Workflow in Linear.
+   - For Linear, set `tracker.kind: linear` and `tracker.project_slug`.
+   - For ClickUp, set `tracker.kind: clickup` and `tracker.list_id`.
+   - When creating a workflow based on this repo, note that it depends on non-standard workflow
+     issue statuses such as "Rework", "Human Review", and "Merging". Adapt them to your tracker
+     as needed.
 6. Follow the instructions below to install the required runtime dependencies and start the service.
 
 ## Prerequisites
@@ -90,6 +93,7 @@ Minimal example:
 tracker:
   kind: linear
   project_slug: "..."
+  # ClickUp uses `list_id` instead of `project_slug`
 workspace:
   root: ~/code/workspaces
 hooks:
@@ -102,7 +106,7 @@ codex:
   command: codex app-server
 ---
 
-You are working on a Linear issue {{ issue.identifier }}.
+You are working on a tracker issue {{ issue.identifier }}.
 
 Title: {{ issue.title }} Body: {{ issue.description }}
 ```
@@ -126,7 +130,9 @@ Notes:
   `git clone ... .` there, along with any other setup commands you need.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
-- `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
+- `tracker.api_key` reads from a tracker-specific env var when unset or when value is `$...`.
+  - Linear uses `LINEAR_API_KEY`.
+  - ClickUp uses `CLICKUP_API_KEY`.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,
   while `codex.command` stays a shell command string and any `$VAR` expansion there happens in the
@@ -135,6 +141,8 @@ Notes:
 ```yaml
 tracker:
   api_key: $LINEAR_API_KEY
+  # Or for ClickUp:
+  # api_key: $CLICKUP_API_KEY
 workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:

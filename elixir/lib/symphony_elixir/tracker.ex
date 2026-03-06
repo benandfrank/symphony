@@ -39,8 +39,10 @@ defmodule SymphonyElixir.Tracker do
   @spec adapter() :: module()
   def adapter do
     case Config.tracker_kind() do
+      "linear" -> SymphonyElixir.Linear.Adapter
+      "clickup" -> SymphonyElixir.ClickUp.Adapter
       "memory" -> SymphonyElixir.Tracker.Memory
-      _ -> SymphonyElixir.Linear.Adapter
+      other -> raise ArgumentError, "unsupported tracker kind: #{inspect(other)}"
     end
   end
 end

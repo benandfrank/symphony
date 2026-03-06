@@ -9,36 +9,6 @@ defmodule SymphonyElixir.ExtensionsTest do
 
   @endpoint SymphonyElixirWeb.Endpoint
 
-  defmodule FakeLinearClient do
-    def fetch_candidate_issues do
-      send(self(), :fetch_candidate_issues_called)
-      {:ok, [:candidate]}
-    end
-
-    def fetch_issues_by_states(states) do
-      send(self(), {:fetch_issues_by_states_called, states})
-      {:ok, states}
-    end
-
-    def fetch_issue_states_by_ids(issue_ids) do
-      send(self(), {:fetch_issue_states_by_ids_called, issue_ids})
-      {:ok, issue_ids}
-    end
-
-    def graphql(query, variables) do
-      send(self(), {:graphql_called, query, variables})
-
-      case Process.get({__MODULE__, :graphql_results}) do
-        [result | rest] ->
-          Process.put({__MODULE__, :graphql_results}, rest)
-          result
-
-        _ ->
-          Process.get({__MODULE__, :graphql_result})
-      end
-    end
-  end
-
   defmodule SlowOrchestrator do
     use GenServer
 
@@ -75,20 +45,6 @@ defmodule SymphonyElixir.ExtensionsTest do
     def handle_call(:request_refresh, _from, state) do
       {:reply, Keyword.get(state, :refresh, :unavailable), state}
     end
-  end
-
-  setup do
-    linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
-
-    on_exit(fn ->
-      if is_nil(linear_client_module) do
-        Application.delete_env(:symphony_elixir, :linear_client_module)
-      else
-        Application.put_env(:symphony_elixir, :linear_client_module, linear_client_module)
-      end
-    end)
-
-    :ok
   end
 
   setup do
@@ -205,118 +161,160 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert SymphonyElixir.Tracker.adapter() == Adapter
   end
 
-  test "linear adapter delegates reads and validates mutation responses" do
-    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
+  test "linear adapter default arities return missing-token errors before network calls" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear", tracker_api_token: nil)
 
-    assert {:ok, [:candidate]} = Adapter.fetch_candidate_issues()
+    # Act / Assert
+    assert {:error, :missing_linear_api_token} = Adapter.fetch_candidate_issues()
+    assert {:error, :missing_linear_api_token} = Adapter.fetch_issues_by_states(["Todo"])
+    assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.fetch_issue_states_by_ids(["issue-1"])
+    assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.create_comment("issue-1", "hello")
+    assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.update_issue_state("issue-1", "Done")
+  end
+
+  test "linear adapter delegates reads and validates mutation responses" do
+    # Arrange
+    fetch_candidate_issues_fun = fn ->
+      send(self(), :fetch_candidate_issues_called)
+      {:ok, [:candidate]}
+    end
+
+    fetch_issues_by_states_fun = fn states ->
+      send(self(), {:fetch_issues_by_states_called, states})
+      {:ok, states}
+    end
+
+    fetch_issue_states_by_ids_fun = fn issue_ids ->
+      send(self(), {:fetch_issue_states_by_ids_called, issue_ids})
+      {:ok, issue_ids}
+    end
+
+    test_pid = self()
+
+    # Act / Assert
+    assert {:ok, [:candidate]} =
+             Adapter.fetch_candidate_issues(fetch_candidate_issues_fun: fetch_candidate_issues_fun)
+
     assert_receive :fetch_candidate_issues_called
 
-    assert {:ok, ["Todo"]} = Adapter.fetch_issues_by_states(["Todo"])
+    assert {:ok, ["Todo"]} =
+             Adapter.fetch_issues_by_states(["Todo"],
+               fetch_issues_by_states_fun: fetch_issues_by_states_fun
+             )
+
     assert_receive {:fetch_issues_by_states_called, ["Todo"]}
 
-    assert {:ok, ["issue-1"]} = Adapter.fetch_issue_states_by_ids(["issue-1"])
+    assert {:ok, ["issue-1"]} =
+             Adapter.fetch_issue_states_by_ids(["issue-1"],
+               fetch_issue_states_by_ids_fun: fetch_issue_states_by_ids_fun
+             )
+
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
-    )
+    assert :ok =
+             Adapter.create_comment("issue-1", "hello",
+               graphql_fun: fn query, variables ->
+                 send(test_pid, {:graphql_called, query, variables})
+                 {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
+               end
+             )
 
-    assert :ok = Adapter.create_comment("issue-1", "hello")
     assert_receive {:graphql_called, create_comment_query, %{body: "hello", issueId: "issue-1"}}
     assert create_comment_query =~ "commentCreate"
 
-    Process.put(
-      {FakeLinearClient, :graphql_result},
-      {:ok, %{"data" => %{"commentCreate" => %{"success" => false}}}}
-    )
+    assert {:error, :comment_create_failed} =
+             Adapter.create_comment("issue-1", "broken",
+               graphql_fun: fn _query, _variables ->
+                 {:ok, %{"data" => %{"commentCreate" => %{"success" => false}}}}
+               end
+             )
+
+    assert {:error, :boom} =
+             Adapter.create_comment("issue-1", "boom", graphql_fun: fn _query, _variables -> {:error, :boom} end)
 
     assert {:error, :comment_create_failed} =
-             Adapter.create_comment("issue-1", "broken")
+             Adapter.create_comment("issue-1", "weird", graphql_fun: fn _query, _variables -> {:ok, %{"data" => %{}}} end)
 
-    Process.put({FakeLinearClient, :graphql_result}, {:error, :boom})
+    assert {:error, :comment_create_failed} =
+             Adapter.create_comment("issue-1", "odd", graphql_fun: fn _query, _variables -> :unexpected end)
 
-    assert {:error, :boom} = Adapter.create_comment("issue-1", "boom")
+    {:ok, graphql_pid} =
+      Agent.start_link(fn ->
+        [
+          {:ok,
+           %{
+             "data" => %{
+               "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+             }
+           }},
+          {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+        ]
+      end)
 
-    Process.put({FakeLinearClient, :graphql_result}, {:ok, %{"data" => %{}}})
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "weird")
+    assert :ok =
+             Adapter.update_issue_state("issue-1", "Done",
+               graphql_fun: fn query, variables ->
+                 send(test_pid, {:graphql_called, query, variables})
 
-    Process.put({FakeLinearClient, :graphql_result}, :unexpected)
-    assert {:error, :comment_create_failed} = Adapter.create_comment("issue-1", "odd")
+                 Agent.get_and_update(graphql_pid, fn [result | rest] ->
+                   {result, rest}
+                 end)
+               end
+             )
 
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
-      ]
-    )
-
-    assert :ok = Adapter.update_issue_state("issue-1", "Done")
     assert_receive {:graphql_called, state_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
     assert state_lookup_query =~ "states"
-
     assert_receive {:graphql_called, update_issue_query, %{issueId: "issue-1", stateId: "state-1"}}
-
     assert update_issue_query =~ "issueUpdate"
 
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
-      ]
-    )
+    assert {:error, :issue_update_failed} =
+             Adapter.update_issue_state("issue-1", "Broken",
+               graphql_fun:
+                 sequential_fun([
+                   {:ok,
+                    %{
+                      "data" => %{
+                        "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+                      }
+                    }},
+                   {:ok, %{"data" => %{"issueUpdate" => %{"success" => false}}}}
+                 ])
+             )
+
+    assert {:error, :boom} =
+             Adapter.update_issue_state("issue-1", "Boom", graphql_fun: sequential_fun([{:error, :boom}]))
+
+    assert {:error, :state_not_found} =
+             Adapter.update_issue_state("issue-1", "Missing", graphql_fun: sequential_fun([{:ok, %{"data" => %{}}}]))
 
     assert {:error, :issue_update_failed} =
-             Adapter.update_issue_state("issue-1", "Broken")
+             Adapter.update_issue_state("issue-1", "Weird",
+               graphql_fun:
+                 sequential_fun([
+                   {:ok,
+                    %{
+                      "data" => %{
+                        "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+                      }
+                    }},
+                   {:ok, %{"data" => %{}}}
+                 ])
+             )
 
-    Process.put({FakeLinearClient, :graphql_results}, [{:error, :boom}])
-
-    assert {:error, :boom} = Adapter.update_issue_state("issue-1", "Boom")
-
-    Process.put({FakeLinearClient, :graphql_results}, [{:ok, %{"data" => %{}}}])
-    assert {:error, :state_not_found} = Adapter.update_issue_state("issue-1", "Missing")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        {:ok, %{"data" => %{}}}
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Weird")
-
-    Process.put(
-      {FakeLinearClient, :graphql_results},
-      [
-        {:ok,
-         %{
-           "data" => %{
-             "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
-           }
-         }},
-        :unexpected
-      ]
-    )
-
-    assert {:error, :issue_update_failed} = Adapter.update_issue_state("issue-1", "Odd")
+    assert {:error, :issue_update_failed} =
+             Adapter.update_issue_state("issue-1", "Odd",
+               graphql_fun:
+                 sequential_fun([
+                   {:ok,
+                    %{
+                      "data" => %{
+                        "issue" => %{"team" => %{"states" => %{"nodes" => [%{"id" => "state-1"}]}}}
+                      }
+                    }},
+                   :unexpected
+                 ])
+             )
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
@@ -727,6 +725,16 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
+
+  defp sequential_fun(results) do
+    {:ok, pid} = Agent.start_link(fn -> results end)
+
+    fn _query, _variables ->
+      Agent.get_and_update(pid, fn [result | rest] ->
+        {result, rest}
+      end)
+    end
+  end
 
   defp ensure_workflow_store_running do
     if Process.whereis(WorkflowStore) do

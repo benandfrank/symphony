@@ -282,6 +282,9 @@ defmodule SymphonyElixir.AppServerTest do
                    |> String.trim_leading("JSON:")
                    |> Jason.decode!()
 
+                 # Assumes default test workflow tracker_kind: "linear".
+                 # DynamicTool.tool_specs/0 is tracker-aware; this assertion
+                 # is only valid while the test setup emits a linear workflow.
                  payload["id"] == 2 and
                    case get_in(payload, ["params", "dynamicTools"]) do
                      [
