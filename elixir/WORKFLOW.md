@@ -36,7 +36,7 @@ codex:
     type: workspaceWrite
 ---
 
-You are working on a Linear ticket `{{ issue.identifier }}`
+You are working on a tracker ticket `{{ issue.identifier }}`
 
 {% if attempt %}
 Continuation context:
@@ -69,9 +69,9 @@ Instructions:
 
 Work only in the provided repository copy. Do not touch any other path.
 
-## Prerequisite: Linear MCP or `linear_graphql` tool is available
+## Prerequisite: tracker tool is available
 
-The agent should be able to talk to Linear, either via a configured Linear MCP server or injected `linear_graphql` tool. If none are present, stop and ask the user to configure Linear.
+The agent should be able to talk to the configured tracker, either via a configured MCP server or an injected dynamic tool (`linear_graphql` for Linear, `clickup_api` for ClickUp). If none are present, stop and ask the user to configure the tracker.
 
 ## Default posture
 
@@ -79,23 +79,30 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 - Start every task by opening the tracking workpad comment and bringing it up to date before doing new implementation work.
 - Spend extra effort up front on planning and verification design before implementation.
 - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
+- Follow the development cycle: Think → Spec → 🔴 Red → Implement → 🟢 Green → 🔵 Refactor → Deliver.
+  - **🔴 Red before Implement**: write failing tests that capture the expected behavior before writing production code. Confirm `make all` fails on the new tests and all prior tests still pass.
+  - **🟢 Green gate**: `make all` must pass (format, lint, coverage, dialyzer, specs) before moving to Deliver.
+  - **🔵 Refactor**: clean up without changing behavior. Log every out-of-scope finding in `.codex`-adjacent `docs/exec-plans/tech-debt-tracker.md` with a tracker issue ID.
 - Keep ticket metadata current (state, checklist, acceptance criteria, links).
-- Treat a single persistent Linear comment as the source of truth for progress.
+- Treat a single persistent tracker comment as the source of truth for progress.
 - Use that single workpad comment for all progress and handoff notes; do not post separate "done"/summary comments.
 - Treat any ticket-authored `Validation`, `Test Plan`, or `Testing` section as non-negotiable acceptance input: mirror it in the workpad and execute it before considering the work complete.
-- When meaningful out-of-scope improvements are discovered during execution,
-  file a separate Linear issue instead of expanding scope. The follow-up issue
-  must include a clear title, description, and acceptance criteria, be placed in
-  `Backlog`, be assigned to the same project as the current issue, link the
-  current issue as `related`, and use `blockedBy` when the follow-up depends on
-  the current issue.
+- When meaningful out-of-scope improvements are discovered during execution, do not expand scope.
+  Instead:
+  1. Append an entry to `docs/exec-plans/tech-debt-tracker.md` in the host repo with a short
+     description and the current ticket ID in the `Discovered in` column.
+  2. File a separate tracker issue with a clear title, description, and acceptance criteria,
+     placed in `Backlog`, assigned to the same project, linked to the current issue as `related`,
+     and marked `blockedBy` when the follow-up depends on the current issue.
+  3. Record the new issue ID in the `Ticket` column of the tech-debt-tracker entry.
 - Move status only when the matching quality bar is met.
 - Operate autonomously end-to-end unless blocked by missing requirements, secrets, or permissions.
 - Use the blocked-access escape hatch only for true external blockers (missing required tools/auth) after exhausting documented fallbacks.
 
 ## Related skills
 
-- `linear`: interact with Linear.
+- `linear`: interact with Linear (when tracker kind is `linear`).
+- `clickup`: interact with ClickUp (when tracker kind is `clickup`).
 - `commit`: produce clean, logical commits during implementation.
 - `push`: keep remote branch current and publish updates.
 - `pull`: keep branch updated with latest `origin/main` before handoff.
@@ -151,7 +158,7 @@ The agent should be able to talk to Linear, either via a configured Linear MCP s
 5.  Ensure the workpad includes a compact environment stamp at the top as a code fence line:
     - Format: `<host>:<abs-workdir>@<short-sha>`
     - Example: `devbox-01:/home/dev-user/code/symphony-workspaces/MT-32@7bdde33bc`
-    - Do not include metadata already inferable from Linear issue fields (`issue ID`, `status`, `branch`, `PR link`).
+    - Do not include metadata already inferable from tracker issue fields (`issue ID`, `status`, `branch`, `PR link`).
 6.  Add explicit acceptance criteria and TODOs in checklist form in the same comment.
     - If changes are user-facing, include a UI walkthrough acceptance criterion that describes the end-to-end user path to validate.
     - If changes touch app files or app behavior, add explicit app-specific flow checks to `Acceptance Criteria` in the workpad (for example: launch path, changed interaction path, and expected result path).
@@ -278,11 +285,10 @@ Use this only when completion is blocked by missing required tools or missing au
 - Use exactly one persistent workpad comment (`## Codex Workpad`) per issue.
 - If comment editing is unavailable in-session, use the update script. Only report blocked if both MCP editing and script-based editing are unavailable.
 - Temporary proof edits are allowed only for local verification and must be reverted before commit.
-- If out-of-scope improvements are found, create a separate Backlog issue rather
-  than expanding current scope, and include a clear
-  title/description/acceptance criteria, same-project assignment, a `related`
-  link to the current issue, and `blockedBy` when the follow-up depends on the
-  current issue.
+- If out-of-scope improvements are found, log them in `docs/exec-plans/tech-debt-tracker.md`
+  and create a separate Backlog tracker issue (clear title/description/acceptance criteria,
+  same-project assignment, `related` link to the current issue, `blockedBy` when applicable).
+  Record the issue ID in the tech-debt-tracker entry. Do not expand current scope.
 - Do not move to `Human Review` unless the `Completion bar before Human Review` is satisfied.
 - In `Human Review`, do not make changes; wait and poll.
 - If state is terminal (`Done`), do nothing and shut down.
