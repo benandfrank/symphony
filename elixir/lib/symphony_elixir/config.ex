@@ -10,7 +10,7 @@ defmodule SymphonyElixir.Config do
   @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
   @default_linear_endpoint "https://api.linear.app/graphql"
   @default_prompt_template """
-  You are working on a Linear issue.
+  You are working on a tracker issue.
 
   Identifier: {{ issue.identifier }}
   Title: {{ issue.title }}
@@ -53,6 +53,7 @@ defmodule SymphonyElixir.Config do
                                  endpoint: [type: :string, default: @default_linear_endpoint],
                                  api_key: [type: {:or, [:string, nil]}, default: nil],
                                  project_slug: [type: {:or, [:string, nil]}, default: nil],
+                                 list_id: [type: {:or, [:string, nil]}, default: nil],
                                  assignee: [type: {:or, [:string, nil]}, default: nil],
                                  active_states: [
                                    type: {:list, :string},
@@ -183,39 +184,69 @@ defmodule SymphonyElixir.Config do
     get_in(validated_workflow_options(), [:tracker, :kind])
   end
 
-  @spec linear_endpoint() :: String.t()
-  def linear_endpoint do
-    get_in(validated_workflow_options(), [:tracker, :endpoint])
+  # -- Tracker-agnostic config getters --
+
+  @default_clickup_endpoint "https://api.clickup.com/api/v2"
+
+  @spec tracker_endpoint() :: String.t()
+  def tracker_endpoint do
+    configured = get_in(validated_workflow_options(), [:tracker, :endpoint])
+
+    if configured == @default_linear_endpoint and tracker_kind() == "clickup" do
+      @default_clickup_endpoint
+    else
+      configured
+    end
   end
 
-  @spec linear_api_token() :: String.t() | nil
-  def linear_api_token do
+  @spec tracker_api_token() :: String.t() | nil
+  def tracker_api_token do
+    env_fallback =
+      case tracker_kind() do
+        "clickup" -> System.get_env("CLICKUP_API_KEY")
+        _ -> System.get_env("LINEAR_API_KEY")
+      end
+
     validated_workflow_options()
     |> get_in([:tracker, :api_key])
-    |> resolve_env_value(System.get_env("LINEAR_API_KEY"))
+    |> resolve_env_value(env_fallback)
     |> normalize_secret_value()
   end
 
-  @spec linear_project_slug() :: String.t() | nil
-  def linear_project_slug do
-    get_in(validated_workflow_options(), [:tracker, :project_slug])
+  @spec tracker_project_id() :: String.t() | nil
+  def tracker_project_id do
+    options = validated_workflow_options()
+
+    case tracker_kind() do
+      "clickup" ->
+        get_in(options, [:tracker, :list_id]) || get_in(options, [:tracker, :project_slug])
+
+      _ ->
+        get_in(options, [:tracker, :project_slug])
+    end
   end
 
-  @spec linear_assignee() :: String.t() | nil
-  def linear_assignee do
+  @spec tracker_assignee() :: String.t() | nil
+  def tracker_assignee do
+    env_fallback =
+      case tracker_kind() do
+        "clickup" -> System.get_env("CLICKUP_ASSIGNEE")
+        _ -> System.get_env("LINEAR_ASSIGNEE")
+      end
+
     validated_workflow_options()
     |> get_in([:tracker, :assignee])
-    |> resolve_env_value(System.get_env("LINEAR_ASSIGNEE"))
+    |> resolve_env_value(env_fallback)
     |> normalize_secret_value()
   end
 
-  @spec linear_active_states() :: [String.t()]
-  def linear_active_states do
+  @spec tracker_active_states() :: [String.t()]
+  def tracker_active_states do
     get_in(validated_workflow_options(), [:tracker, :active_states])
   end
 
-  @spec linear_terminal_states() :: [String.t()]
-  def linear_terminal_states do
+  @spec tracker_terminal_states() :: [String.t()]
+  def tracker_terminal_states do
     get_in(validated_workflow_options(), [:tracker, :terminal_states])
   end
 
@@ -365,8 +396,8 @@ defmodule SymphonyElixir.Config do
   def validate! do
     with {:ok, _workflow} <- current_workflow(),
          :ok <- require_tracker_kind(),
-         :ok <- require_linear_token(),
-         :ok <- require_linear_project(),
+         :ok <- require_tracker_api_token(),
+         :ok <- require_tracker_project_id(),
          :ok <- require_valid_codex_runtime_settings() do
       require_codex_command()
     end
@@ -389,19 +420,20 @@ defmodule SymphonyElixir.Config do
   defp require_tracker_kind do
     case tracker_kind() do
       "linear" -> :ok
+      "clickup" -> :ok
       "memory" -> :ok
       nil -> {:error, :missing_tracker_kind}
       other -> {:error, {:unsupported_tracker_kind, other}}
     end
   end
 
-  defp require_linear_token do
+  defp require_tracker_api_token do
     case tracker_kind() do
-      "linear" ->
-        if is_binary(linear_api_token()) do
+      kind when kind in ["linear", "clickup"] ->
+        if is_binary(tracker_api_token()) do
           :ok
         else
-          {:error, :missing_linear_api_token}
+          {:error, :missing_tracker_api_token}
         end
 
       _ ->
@@ -409,13 +441,13 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp require_linear_project do
+  defp require_tracker_project_id do
     case tracker_kind() do
-      "linear" ->
-        if is_binary(linear_project_slug()) do
+      kind when kind in ["linear", "clickup"] ->
+        if is_binary(tracker_project_id()) do
           :ok
         else
-          {:error, :missing_linear_project_slug}
+          {:error, :missing_tracker_project_id}
         end
 
       _ ->
@@ -463,6 +495,8 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:endpoint, scalar_string_value(Map.get(section, "endpoint")))
     |> put_if_present(:api_key, binary_value(Map.get(section, "api_key"), allow_empty: true))
     |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
+    |> put_if_present(:list_id, scalar_string_value(Map.get(section, "list_id")))
+    |> put_if_present(:assignee, scalar_string_value(Map.get(section, "assignee")))
     |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
     |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
   end

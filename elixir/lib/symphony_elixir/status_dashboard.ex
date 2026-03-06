@@ -391,9 +391,12 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_project_link_lines do
     project_part =
-      case Config.linear_project_slug() do
-        project_slug when is_binary(project_slug) and project_slug != "" ->
-          colorize(linear_project_url(project_slug), @ansi_cyan)
+      case Config.tracker_project_id() do
+        project_id when is_binary(project_id) and project_id != "" ->
+          case tracker_project_url(project_id) do
+            url when is_binary(url) -> colorize(url, @ansi_cyan)
+            _ -> colorize("n/a", @ansi_gray)
+          end
 
         _ ->
           colorize("n/a", @ansi_gray)
@@ -424,7 +427,13 @@ defmodule SymphonyElixir.StatusDashboard do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
   end
 
-  defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"
+  defp tracker_project_url(project_id) do
+    case Config.tracker_kind() do
+      "linear" -> "https://linear.app/project/#{project_id}/issues"
+      "clickup" -> "https://app.clickup.com/#{project_id}"
+      _ -> nil
+    end
+  end
 
   defp dashboard_url do
     dashboard_url(Config.server_host(), Config.server_port(), HttpServer.bound_port())

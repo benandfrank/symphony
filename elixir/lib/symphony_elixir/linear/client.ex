@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Linear.Client do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.{Config, Issue}
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -105,10 +105,10 @@ defmodule SymphonyElixir.Linear.Client do
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
-    project_slug = Config.linear_project_slug()
+    project_slug = Config.tracker_project_id()
 
     cond do
-      is_nil(Config.linear_api_token()) ->
+      is_nil(Config.tracker_api_token()) ->
         {:error, :missing_linear_api_token}
 
       is_nil(project_slug) ->
@@ -116,7 +116,7 @@ defmodule SymphonyElixir.Linear.Client do
 
       true ->
         with {:ok, assignee_filter} <- routing_assignee_filter() do
-          do_fetch_by_states(project_slug, Config.linear_active_states(), assignee_filter)
+          do_fetch_by_states(project_slug, Config.tracker_active_states(), assignee_filter)
         end
     end
   end
@@ -128,10 +128,10 @@ defmodule SymphonyElixir.Linear.Client do
     if normalized_states == [] do
       {:ok, []}
     else
-      project_slug = Config.linear_project_slug()
+      project_slug = Config.tracker_project_id()
 
       cond do
-        is_nil(Config.linear_api_token()) ->
+        is_nil(Config.tracker_api_token()) ->
           {:error, :missing_linear_api_token}
 
         is_nil(project_slug) ->
@@ -325,7 +325,7 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp graphql_headers do
-    case Config.linear_api_token() do
+    case Config.tracker_api_token() do
       nil ->
         {:error, :missing_linear_api_token}
 
@@ -339,7 +339,7 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp post_graphql_request(payload, headers) do
-    Req.post(Config.linear_endpoint(),
+    Req.post(Config.tracker_endpoint(),
       headers: headers,
       json: payload,
       connect_options: [timeout: 30_000]
@@ -432,7 +432,7 @@ defmodule SymphonyElixir.Linear.Client do
   defp assignee_id(%{} = assignee), do: normalize_assignee_match_value(assignee["id"])
 
   defp routing_assignee_filter do
-    case Config.linear_assignee() do
+    case Config.tracker_assignee() do
       nil ->
         {:ok, nil}
 
