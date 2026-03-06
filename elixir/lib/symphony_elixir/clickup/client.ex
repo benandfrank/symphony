@@ -4,6 +4,7 @@ defmodule SymphonyElixir.ClickUp.Client do
   """
 
   require Logger
+  alias SymphonyElixir.ClickUp.HTTP, as: ClickUpHTTP
   alias SymphonyElixir.{Config, Issue}
 
   @max_parallel_fetches 5
@@ -52,7 +53,7 @@ defmodule SymphonyElixir.ClickUp.Client do
     with {:ok, headers} <- auth_headers() do
       url = Config.tracker_endpoint() |> String.trim_trailing("/")
       full_url = url <> path
-      request_fun = Keyword.get(opts, :request_fun, &default_request/4)
+      request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
 
       case request_fun.(method_atom(method), full_url, headers, body) do
         {:ok, %{status: status, body: resp_body}} when status in 200..299 ->
@@ -80,7 +81,7 @@ defmodule SymphonyElixir.ClickUp.Client do
   end
 
   defp do_fetch_by_list_page(list_id, statuses, opts, page, acc) do
-    request_fun = Keyword.get(opts, :request_fun, &default_request/4)
+    request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
 
     with {:ok, headers} <- auth_headers(),
          {:ok, resp} <- do_list_request(request_fun, list_id, statuses, headers, page) do
@@ -104,10 +105,10 @@ defmodule SymphonyElixir.ClickUp.Client do
 
   defp handle_list_response(%{"tasks" => tasks}, list_id, statuses, opts, page, acc)
        when is_list(tasks) do
-    request_fun = Keyword.get(opts, :request_fun, &default_request/4)
+    request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
 
     with {:ok, headers} <- auth_headers(),
-         {:ok, issues} <- normalize_tasks(tasks, request_fun, headers) do
+         {:ok, issues} <- normalize_tasks(tasks, request_fun, headers, opts) do
       do_fetch_by_list_page(list_id, statuses, opts, page + 1, Enum.reverse(issues, acc))
     end
   end
@@ -117,14 +118,16 @@ defmodule SymphonyElixir.ClickUp.Client do
   end
 
   defp do_fetch_by_ids(ids, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &default_request/4)
+    request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
+    async_timeout = Keyword.get(opts, :async_timeout, @connect_timeout_ms * 2)
 
     results =
       ids
       |> Task.async_stream(
         fn task_id -> fetch_single_task(task_id, request_fun) end,
         max_concurrency: @max_parallel_fetches,
-        timeout: @connect_timeout_ms * 2
+        timeout: async_timeout,
+        on_timeout: :kill_task
       )
       |> Enum.reduce_while([], fn
         {:ok, {:ok, issue}}, acc -> {:cont, [issue | acc]}
@@ -168,7 +171,9 @@ defmodule SymphonyElixir.ClickUp.Client do
     end
   end
 
-  defp normalize_tasks(tasks, request_fun, headers) when is_list(tasks) do
+  defp normalize_tasks(tasks, request_fun, headers, opts) when is_list(tasks) do
+    async_timeout = Keyword.get(opts, :async_timeout, @connect_timeout_ms * 2)
+
     results =
       tasks
       |> Task.async_stream(
@@ -178,7 +183,8 @@ defmodule SymphonyElixir.ClickUp.Client do
           end
         end,
         max_concurrency: @max_parallel_fetches,
-        timeout: @connect_timeout_ms * 2
+        timeout: async_timeout,
+        on_timeout: :kill_task
       )
       |> Enum.reduce_while([], fn
         {:ok, {:ok, issue}}, acc -> {:cont, [issue | acc]}
@@ -242,24 +248,6 @@ defmodule SymphonyElixir.ClickUp.Client do
            {"Content-Type", "application/json"}
          ]}
     end
-  end
-
-  defp default_request(method, url, headers, body) do
-    req_opts = [
-      method: method,
-      url: url,
-      headers: headers,
-      connect_options: [timeout: @connect_timeout_ms]
-    ]
-
-    req_opts =
-      if body do
-        Keyword.put(req_opts, :json, body)
-      else
-        req_opts
-      end
-
-    Req.request(req_opts)
   end
 
   defp method_atom(method) when is_binary(method) do
