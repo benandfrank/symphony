@@ -61,8 +61,8 @@ orchestrator's in-memory map.
 
 Responsibilities:
 - **Poll tick** — reconcile active runs, validate config, fetch candidates, dispatch.
-- **Dispatch** — eligibility checks (state, concurrency slots, blocker rules), priority sort,
-  re-validation before launch.
+- **Dispatch** — eligibility checks (state, worker-routing flag, concurrency slots, blocker rules),
+  priority sort, re-validation before launch.
 - **Retry queue** — exponential backoff for failures; short fixed delay for normal-exit
   continuations.
 - **Reconciliation** — stall detection (inactivity timeout) and tracker-state refresh every tick.
@@ -101,7 +101,8 @@ Adding a new tracker means adding a new adapter module under
 `lib/symphony_elixir/<tracker>/` and a new clause in `Tracker.adapter/0`.
 
 The normalized issue struct (`SymphonyElixir.Issue`) is tracker-agnostic; all adapters produce the
-same struct shape.
+same struct shape, including `assigned_to_worker` for tracker-side worker routing such as assignee
+filtering.
 
 The optional dynamic tool (`Codex.DynamicTool`) is tracker-aware: it advertises `linear_graphql`
 when `tracker.kind == "linear"` and `clickup_api` when `tracker.kind == "clickup"`. Each tool

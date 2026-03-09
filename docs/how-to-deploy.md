@@ -86,7 +86,7 @@ assigned to other users remain visible in tracker reads but are not dispatched b
 If your ClickUp workspace has **Custom Task IDs** enabled (e.g., `PROJ-42`), Symphony will use
 them as the human-readable `identifier`. Otherwise, the internal ClickUp task ID is used.
 
-### 2.5 ClickUp vs. Linear — Key Differences
+### 2.6 ClickUp vs. Linear — Key Differences
 
 | Concern | ClickUp | Linear |
 |---------|---------|--------|

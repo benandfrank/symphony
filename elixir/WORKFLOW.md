@@ -2,6 +2,9 @@
 tracker:
   kind: linear
   project_slug: "symphony-0c79b11b75ea"
+  # Optional: route only issues assigned to this worker identity.
+  # Linear uses an assignee display name or email; ClickUp uses the user ID.
+  # assignee: "engineering@symphony.dev"
   active_states:
     - Todo
     - In Progress

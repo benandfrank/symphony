@@ -163,6 +163,10 @@ Fields:
     - `id` (string or null)
     - `identifier` (string or null)
     - `state` (string or null)
+- `assigned_to_worker` (boolean)
+  - Whether this issue is eligible for the current Symphony instance based on tracker-specific
+    worker routing rules (for example assignee filtering).
+  - Default behavior when no worker-routing filter is configured is `true`.
 - `created_at` (timestamp or null)
 - `updated_at` (timestamp or null)
 
@@ -360,6 +364,13 @@ Fields:
   - Required for dispatch when the selected tracker uses a project slug identifier (for example Linear).
 - `list_id` (string)
   - Required for dispatch when the selected tracker uses a list identifier (for example ClickUp).
+- `assignee` (string)
+  - Optional worker-routing filter.
+  - When present, tracker clients should still read all matching issues needed for reconciliation,
+    but mark only assignee-matching issues as routable to the current worker.
+  - Reference implementation examples:
+    - `tracker.kind == "linear"` -> assignee display name/email with env fallback `LINEAR_ASSIGNEE`
+    - `tracker.kind == "clickup"` -> assignee user ID with env fallback `CLICKUP_ASSIGNEE`
 - `active_states` (list of strings or comma-separated string)
   - Default: `Todo`, `In Progress`
 - `terminal_states` (list of strings or comma-separated string)
@@ -714,6 +725,7 @@ An issue is dispatch-eligible only if all are true:
 
 - It has `id`, `identifier`, `title`, and `state`.
 - Its state is in `active_states` and not in `terminal_states`.
+- It is marked `assigned_to_worker == true`.
 - It is not already in `running`.
 - It is not already in `claimed`.
 - Global concurrency slots are available.
