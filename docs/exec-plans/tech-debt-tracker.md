@@ -19,7 +19,9 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
-
+| ClickUp | ClickUp and Linear clients treat HTTP 429 like any other API error and do not honor `Retry-After` for tracker-aware backoff | ClickUp assignee routing follow-up | — | 2026-03-06 |
+| DynamicTool | `linear_graphql` tool does not validate and reject multi-operation GraphQL documents before sending them to Linear | ClickUp assignee routing follow-up | — | 2026-03-06 |
+| Tracker | `Tracker` behaviour exposes `create_comment/2` but not comment update, so programmatic persistent workpad comment editing still depends on tracker-specific dynamic tools | ClickUp assignee routing follow-up | — | 2026-03-06 |
 
 ## Closed
 

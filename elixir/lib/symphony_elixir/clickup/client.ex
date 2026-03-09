@@ -17,7 +17,8 @@ defmodule SymphonyElixir.ClickUp.Client do
     with {:ok, _token} <- require_token(),
          {:ok, list_id} <- require_list_id() do
       statuses = Config.tracker_active_states()
-      do_fetch_by_list(list_id, statuses, opts)
+      assignee_filter = routing_assignee_filter()
+      do_fetch_by_list(list_id, statuses, assignee_filter, opts)
     end
   end
 
@@ -30,7 +31,8 @@ defmodule SymphonyElixir.ClickUp.Client do
     else
       with {:ok, _token} <- require_token(),
            {:ok, list_id} <- require_list_id() do
-        do_fetch_by_list(list_id, normalized, opts)
+        assignee_filter = routing_assignee_filter()
+        do_fetch_by_list(list_id, normalized, assignee_filter, opts)
       end
     end
   end
@@ -43,12 +45,13 @@ defmodule SymphonyElixir.ClickUp.Client do
       {:ok, []}
     else
       with {:ok, _token} <- require_token() do
-        do_fetch_by_ids(ids, opts)
+        assignee_filter = routing_assignee_filter()
+        do_fetch_by_ids(ids, assignee_filter, opts)
       end
     end
   end
 
-  @spec rest(String.t(), String.t(), map() | nil, keyword()) :: {:ok, map()} | {:error, term()}
+  @spec rest(String.t() | atom(), String.t(), map() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def rest(method, path, body \\ nil, opts \\ []) do
     with {:ok, headers} <- auth_headers() do
       url = Config.tracker_endpoint() |> String.trim_trailing("/")
@@ -76,16 +79,16 @@ defmodule SymphonyElixir.ClickUp.Client do
 
   # -- Private --
 
-  defp do_fetch_by_list(list_id, statuses, opts) do
-    do_fetch_by_list_page(list_id, statuses, opts, 0, [])
+  defp do_fetch_by_list(list_id, statuses, assignee_filter, opts) do
+    do_fetch_by_list_page(list_id, statuses, assignee_filter, opts, 0, [])
   end
 
-  defp do_fetch_by_list_page(list_id, statuses, opts, page, acc) do
+  defp do_fetch_by_list_page(list_id, statuses, assignee_filter, opts, page, acc) do
     request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
 
     with {:ok, headers} <- auth_headers(),
          {:ok, resp} <- do_list_request(request_fun, list_id, statuses, headers, page) do
-      handle_list_response(resp, list_id, statuses, opts, page, acc)
+      handle_list_response(resp, list_id, statuses, assignee_filter, opts, page, acc)
     end
   end
 
@@ -99,32 +102,32 @@ defmodule SymphonyElixir.ClickUp.Client do
     end
   end
 
-  defp handle_list_response(%{"tasks" => []}, _list_id, _statuses, _opts, _page, acc) do
+  defp handle_list_response(%{"tasks" => []}, _list_id, _statuses, _assignee_filter, _opts, _page, acc) do
     {:ok, Enum.reverse(acc)}
   end
 
-  defp handle_list_response(%{"tasks" => tasks}, list_id, statuses, opts, page, acc)
+  defp handle_list_response(%{"tasks" => tasks}, list_id, statuses, assignee_filter, opts, page, acc)
        when is_list(tasks) do
     request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
 
     with {:ok, headers} <- auth_headers(),
-         {:ok, issues} <- normalize_tasks(tasks, request_fun, headers, opts) do
-      do_fetch_by_list_page(list_id, statuses, opts, page + 1, Enum.reverse(issues, acc))
+         {:ok, issues} <- normalize_tasks(tasks, request_fun, headers, assignee_filter, opts) do
+      do_fetch_by_list_page(list_id, statuses, assignee_filter, opts, page + 1, Enum.reverse(issues, acc))
     end
   end
 
-  defp handle_list_response(_body, _list_id, _statuses, _opts, _page, acc) do
+  defp handle_list_response(_body, _list_id, _statuses, _assignee_filter, _opts, _page, acc) do
     {:ok, Enum.reverse(acc)}
   end
 
-  defp do_fetch_by_ids(ids, opts) do
+  defp do_fetch_by_ids(ids, assignee_filter, opts) do
     request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
     async_timeout = Keyword.get(opts, :async_timeout, @connect_timeout_ms * 2)
 
     results =
       ids
       |> Task.async_stream(
-        fn task_id -> fetch_single_task(task_id, request_fun) end,
+        fn task_id -> fetch_single_task(task_id, request_fun, assignee_filter) end,
         max_concurrency: @max_parallel_fetches,
         timeout: async_timeout,
         on_timeout: :kill_task
@@ -141,14 +144,14 @@ defmodule SymphonyElixir.ClickUp.Client do
     end
   end
 
-  defp fetch_single_task(task_id, request_fun) do
+  defp fetch_single_task(task_id, request_fun, assignee_filter) do
     with {:ok, headers} <- auth_headers() do
       url = Config.tracker_endpoint() |> String.trim_trailing("/")
       full_url = "#{url}/task/#{task_id}"
 
       case request_fun.(:get, full_url, headers, nil) do
         {:ok, %{status: 200, body: task}} when is_map(task) ->
-          normalize_fetched_task(task, request_fun, headers)
+          normalize_fetched_task(task, request_fun, headers, assignee_filter)
 
         {:ok, %{status: status}} ->
           {:error, {:clickup_api_status, status}}
@@ -162,16 +165,16 @@ defmodule SymphonyElixir.ClickUp.Client do
   defp build_list_url(list_id, statuses, page) do
     base = Config.tracker_endpoint() |> String.trim_trailing("/")
     status_params = statuses |> Enum.map_join("&", &"statuses[]=#{URI.encode_www_form(&1)}")
-    "#{base}/list/#{list_id}/task?#{status_params}&page=#{page}&include_closed=false"
+    "#{base}/list/#{list_id}/task?#{status_params}&page=#{page}&limit=100&include_closed=false"
   end
 
-  defp normalize_fetched_task(task, request_fun, headers) do
+  defp normalize_fetched_task(task, request_fun, headers, assignee_filter) do
     with {:ok, dependencies} <- fetch_dependencies_if_needed(task, request_fun, headers) do
-      {:ok, normalize_task(task, dependencies)}
+      {:ok, normalize_task(task, dependencies, assignee_filter)}
     end
   end
 
-  defp normalize_tasks(tasks, request_fun, headers, opts) when is_list(tasks) do
+  defp normalize_tasks(tasks, request_fun, headers, assignee_filter, opts) when is_list(tasks) do
     async_timeout = Keyword.get(opts, :async_timeout, @connect_timeout_ms * 2)
 
     results =
@@ -179,7 +182,7 @@ defmodule SymphonyElixir.ClickUp.Client do
       |> Task.async_stream(
         fn task ->
           with {:ok, dependencies} <- fetch_dependencies_if_needed(task, request_fun, headers) do
-            {:ok, normalize_task(task, dependencies)}
+            {:ok, normalize_task(task, dependencies, assignee_filter)}
           end
         end,
         max_concurrency: @max_parallel_fetches,
@@ -221,6 +224,13 @@ defmodule SymphonyElixir.ClickUp.Client do
   end
 
   defp fetch_dependencies_if_needed(_task, _request_fun, _headers), do: {:ok, []}
+
+  defp routing_assignee_filter do
+    case Config.tracker_assignee() do
+      nil -> nil
+      assignee when is_binary(assignee) -> assignee
+    end
+  end
 
   defp require_token do
     case Config.tracker_api_token() do
@@ -279,7 +289,23 @@ defmodule SymphonyElixir.ClickUp.Client do
 
   defp extract_labels(_), do: []
 
+  defp assigned_to_worker?(_assignees, nil), do: true
+
+  defp assigned_to_worker?(assignees, assignee_filter) when is_list(assignees) and is_binary(assignee_filter) do
+    Enum.any?(assignees, fn
+      %{"id" => id} when is_integer(id) -> Integer.to_string(id) == assignee_filter
+      %{"id" => id} when is_binary(id) -> id == assignee_filter
+      _ -> false
+    end)
+  end
+
+  defp assigned_to_worker?(_assignees, _assignee_filter), do: false
+
   defp normalize_task(task, dependencies) do
+    normalize_task(task, dependencies, nil)
+  end
+
+  defp normalize_task(task, dependencies, assignee_filter) do
     task_with_dependencies = Map.put(task, "dependencies", dependencies)
 
     %Issue{
@@ -294,7 +320,7 @@ defmodule SymphonyElixir.ClickUp.Client do
       assignee_id: parse_first_assignee(task_with_dependencies["assignees"]),
       blocked_by: extract_blockers(task_with_dependencies),
       labels: extract_labels(task_with_dependencies),
-      assigned_to_worker: true,
+      assigned_to_worker: assigned_to_worker?(task_with_dependencies["assignees"], assignee_filter),
       created_at: parse_unix_ms(task_with_dependencies["date_created"]),
       updated_at: parse_unix_ms(task_with_dependencies["date_updated"])
     }

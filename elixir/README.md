@@ -33,6 +33,9 @@ Symphony stops the active agent for that issue and cleans up matching workspaces
 2. Configure tracker auth for your selected backend.
    - Linear: create a personal API key and set `LINEAR_API_KEY`.
    - ClickUp: create an API token and set `CLICKUP_API_KEY`.
+   - Optional assignee routing:
+     - Linear uses `LINEAR_ASSIGNEE` (or `tracker.assignee`).
+     - ClickUp uses `CLICKUP_ASSIGNEE` (or `tracker.assignee`).
 3. Copy this directory's `WORKFLOW.md` to your repo.
 4. Optionally copy the `commit`, `push`, `pull`, `land`, and tracker skills to your repo.
    - The `linear` skill expects Symphony's `linear_graphql` app-server tool for raw Linear GraphQL

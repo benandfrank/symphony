@@ -46,6 +46,7 @@ help with the setup:
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layered architecture of the Elixir implementation |
 | [`docs/design-docs/`](docs/design-docs/index.md) | ADR-style records for significant architectural decisions |
 | [`docs/exec-plans/tech-debt-tracker.md`](docs/exec-plans/tech-debt-tracker.md) | Out-of-scope findings logged during ticket execution (🔵 Refactor phase output) |
+| [`docs/how-to-deploy.md`](docs/how-to-deploy.md) | End-to-end deployment guide (ClickUp, AWS, GitHub) |
 | [`docs/references/`](docs/references/index.md) | LLM-friendly external API and tool references |
 | [`elixir/README.md`](elixir/README.md) | Elixir setup and run instructions |
 | [`elixir/AGENTS.md`](elixir/AGENTS.md) | Agent and contributor guidelines for the Elixir implementation |

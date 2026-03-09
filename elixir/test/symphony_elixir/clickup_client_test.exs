@@ -9,7 +9,8 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       tracker_kind: "clickup",
       tracker_api_token: Keyword.get(opts, :token, "ck_test"),
       tracker_list_id: Keyword.get(opts, :list_id, "list-900"),
-      tracker_project_slug: nil
+      tracker_project_slug: nil,
+      tracker_assignee: Keyword.get(opts, :assignee, nil)
     )
   end
 
@@ -283,6 +284,68 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
   end
 
   describe "fetch_issue_states_by_ids/2" do
+    test "marks reconciled issues as assigned_to_worker when assignee matches workflow config" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            {:ok, %{status: 200, body: %{"dependencies" => []}}}
+
+          url =~ "/task/t-1" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "id" => "t-1",
+                 "name" => "One",
+                 "status" => %{"status" => "done"},
+                 "assignees" => [%{"id" => 12_345}],
+                 "tags" => []
+               }
+             }}
+        end
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == true
+    end
+
+    test "marks reconciled issues as not assigned_to_worker when assignee does not match" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            {:ok, %{status: 200, body: %{"dependencies" => []}}}
+
+          url =~ "/task/t-1" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "id" => "t-1",
+                 "name" => "One",
+                 "status" => %{"status" => "done"},
+                 "assignees" => [%{"id" => 99_999}],
+                 "tags" => []
+               }
+             }}
+        end
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == false
+    end
+
     test "returns missing token error when auth is unavailable" do
       # Arrange
       clickup_workflow!(token: nil)
@@ -534,6 +597,242 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "includes limit=100 in list endpoint URL" do
+      # Arrange
+      clickup_workflow!()
+
+      request_fun = fn :get, url, _headers, _body ->
+        assert url =~ "limit=100"
+        {:ok, %{status: 200, body: %{"tasks" => []}}}
+      end
+
+      # Act
+      result = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert {:ok, []} = result
+    end
+
+    test "marks issues as assigned_to_worker when assignee matches workflow config" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"id" => 12_345}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == true
+    end
+
+    test "marks issues as not assigned_to_worker when assignee does not match workflow config" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"id" => 99_999}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == false
+    end
+
+    test "marks unassigned issues as not assigned_to_worker when assignee filter is configured" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == false
+    end
+
+    test "matches any assignee in a multi-assignee task" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"id" => 99_999}, %{"id" => 12_345}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == true
+    end
+
+    test "matches string assignee ids against configured assignee" do
+      # Arrange
+      clickup_workflow!(assignee: "user-7")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"id" => "user-7"}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == true
+    end
+
+    test "treats malformed assignee entries as non-matching" do
+      # Arrange
+      clickup_workflow!(assignee: "12345")
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"username" => "jdoe"}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == false
+    end
+
+    test "uses CLICKUP_ASSIGNEE env fallback when workflow assignee is unset" do
+      # Arrange
+      original_assignee = System.get_env("CLICKUP_ASSIGNEE")
+      System.put_env("CLICKUP_ASSIGNEE", "12345")
+      clickup_workflow!()
+
+      on_exit(fn -> restore_env("CLICKUP_ASSIGNEE", original_assignee) end)
+
+      request_fun = fn :get, url, _headers, _body ->
+        tasks =
+          if url =~ "page=0" do
+            [
+              %{
+                "id" => "t-1",
+                "name" => "Task one",
+                "status" => %{"status" => "Todo"},
+                "assignees" => [%{"id" => 12_345}],
+                "tags" => [],
+                "dependencies" => []
+              }
+            ]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: %{"tasks" => tasks}}}
+      end
+
+      # Act
+      {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
+
+      # Assert
+      assert issue.assigned_to_worker == true
+    end
+
     test "returns missing project id error when list_id is absent" do
       # Arrange
       clickup_workflow!(list_id: nil)
