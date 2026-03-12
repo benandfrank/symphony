@@ -254,7 +254,7 @@ cp WORKFLOW.md /path/to/your/workflow.md
 # Edit: set tracker.kind, tracker.list_id, hooks.after_create, workspace.root, etc.
 
 # 7. Run
-mise exec -- ./bin/symphony /path/to/your/workflow.md
+mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /path/to/your/workflow.md
 ```
 
 ### 4.4 Running as a Systemd Service
@@ -273,7 +273,7 @@ WorkingDirectory=/opt/symphony/elixir
 Environment=CLICKUP_API_KEY=ck_your_token
 Environment=OPENAI_API_KEY=sk-your_key
 Environment=GITHUB_TOKEN=ghp_your_token
-ExecStart=/opt/symphony/elixir/bin/symphony /opt/symphony/workflow.md --port 4000
+ExecStart=/opt/symphony/elixir/bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails /opt/symphony/workflow.md --port 4000
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -468,13 +468,13 @@ production examples that weren't in the existing docs.
 
 ```bash
 cd symphony/elixir
-mise exec -- ./bin/symphony ./WORKFLOW.md
+mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.md
 ```
 
 ### 6.2 With Dashboard
 
 ```bash
-mise exec -- ./bin/symphony ./WORKFLOW.md --port 4000
+mise exec -- ./bin/symphony --i-understand-that-this-will-be-running-without-the-usual-guardrails ./WORKFLOW.md --port 4000
 ```
 
 ### 6.3 Production (systemd)
@@ -496,7 +496,7 @@ ENV CLICKUP_API_KEY=""
 ENV OPENAI_API_KEY=""
 
 ENTRYPOINT ["./bin/symphony"]
-CMD ["/app/WORKFLOW.md", "--port", "4000"]
+CMD ["--i-understand-that-this-will-be-running-without-the-usual-guardrails", "/app/WORKFLOW.md", "--port", "4000"]
 ```
 
 ### Is this already covered in the codebase?
@@ -509,7 +509,7 @@ CMD ["/app/WORKFLOW.md", "--port", "4000"]
 
 After deployment, verify each layer:
 
-- [ ] **Elixir runtime:** `./bin/symphony --help` runs without errors
+- [ ] **Elixir runtime:** `./bin/symphony` exits with the acknowledgement banner (confirms the binary loads correctly)
 - [ ] **ClickUp auth:** Service logs show successful tracker poll (no `missing_tracker_api_token`)
 - [ ] **List ID:** Service finds tasks (no `missing_tracker_project_id`)
 - [ ] **Git clone:** First task triggers workspace creation and `after_create` hook succeeds
@@ -528,6 +528,7 @@ After deployment, verify each layer:
 | `unsupported_tracker_kind` | `tracker.kind` missing or typo | Must be `clickup` or `linear` |
 | No tasks picked up | Status mismatch | Verify `active_states` match your ClickUp status names (case-insensitive) |
 | `codex_not_found` | `codex` not on PATH | Install Codex CLI or set full path in `codex.command` |
+| `invalid_codex_approval_policy` | `codex.approval_policy` set to an unsupported type (e.g. integer) | Use a string (`"never"`) or a valid policy map |
 | Hook timeout | Slow clone or deps install | Increase `hooks.timeout_ms` (default 60s) |
 | Rate limit (429) | Too many ClickUp API calls | Reduce `max_concurrent_agents` or increase `polling.interval_ms` |
 | Workspace path error | Path traversal safety check | Ensure `workspace.root` is an absolute path |
