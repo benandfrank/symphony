@@ -45,21 +45,25 @@ defmodule SymphonyElixir.Linear.Adapter do
   }
   """
 
+  @impl true
   @spec fetch_candidate_issues(keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
     Keyword.get(opts, :fetch_candidate_issues_fun, &Client.fetch_candidate_issues/0).()
   end
 
+  @impl true
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts \\ []) do
     Keyword.get(opts, :fetch_issues_by_states_fun, &Client.fetch_issues_by_states/1).(states)
   end
 
+  @impl true
   @spec fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) do
     Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Client.fetch_issue_states_by_ids/1).(issue_ids)
   end
 
+  @impl true
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_comment(issue_id, body, opts \\ []) when is_binary(issue_id) and is_binary(body) do
     graphql_fun = Keyword.get(opts, :graphql_fun, &Client.graphql/2)
@@ -74,6 +78,7 @@ defmodule SymphonyElixir.Linear.Adapter do
     end
   end
 
+  @impl true
   @spec update_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_comment(comment_id, body, opts \\ []) when is_binary(comment_id) and is_binary(body) do
     graphql_fun = Keyword.get(opts, :graphql_fun, &Client.graphql/2)
@@ -88,6 +93,7 @@ defmodule SymphonyElixir.Linear.Adapter do
     end
   end
 
+  @impl true
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts \\ [])
       when is_binary(issue_id) and is_binary(state_name) do

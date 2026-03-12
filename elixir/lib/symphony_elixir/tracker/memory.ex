@@ -7,11 +7,13 @@ defmodule SymphonyElixir.Tracker.Memory do
 
   alias SymphonyElixir.Issue
 
+  @impl true
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
     {:ok, issue_entries()}
   end
 
+  @impl true
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names) do
     normalized_states =
@@ -25,6 +27,7 @@ defmodule SymphonyElixir.Tracker.Memory do
      end)}
   end
 
+  @impl true
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
     wanted_ids = MapSet.new(issue_ids)
@@ -35,18 +38,21 @@ defmodule SymphonyElixir.Tracker.Memory do
      end)}
   end
 
+  @impl true
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) do
     send_event({:memory_tracker_comment, issue_id, body})
     :ok
   end
 
+  @impl true
   @spec update_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def update_comment(comment_id, body) do
     send_event({:memory_tracker_comment_update, comment_id, body})
     :ok
   end
 
+  @impl true
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     send_event({:memory_tracker_state_update, issue_id, state_name})

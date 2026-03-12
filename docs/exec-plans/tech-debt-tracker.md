@@ -21,7 +21,6 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 |------|---------|--------------|--------|-------|
 | DynamicTool | `linear_graphql` tool does not validate and reject multi-operation GraphQL documents before sending them to Linear | ClickUp assignee routing follow-up | — | 2026-03-06 |
 
-
 ## Closed
 
 | Area | Finding | Resolution | Ticket | Closed |

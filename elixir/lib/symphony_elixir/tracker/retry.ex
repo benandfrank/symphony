@@ -97,9 +97,13 @@ defmodule SymphonyElixir.Tracker.Retry do
     end
   end
 
-  defp extract_headers({:ok, response}) when is_map(response) do
+  @doc false
+  @spec extract_headers(term()) :: map()
+  def extract_headers({:ok, response}) when is_map(response) do
     Map.get(response, :headers, %{})
   end
+
+  def extract_headers(_), do: %{}
 
   defp find_header_value_in_map(headers, name) when is_map(headers) do
     Enum.find_value(headers, fn {k, v} ->

@@ -162,6 +162,30 @@ defmodule SymphonyElixir.Tracker.RetryTest do
     end
   end
 
+  describe "extract_headers/1" do
+    test "returns the :headers field from a successful response map" do
+      # Arrange
+      response = {:ok, %{status: 429, body: %{}, headers: %{"retry-after" => ["5"]}}}
+
+      # Act
+      result = Retry.extract_headers(response)
+
+      # Assert
+      assert result == %{"retry-after" => ["5"]}
+    end
+
+    test "returns empty map when response has no :headers key" do
+      # Act / Assert
+      assert Retry.extract_headers({:ok, %{status: 429, body: %{}}}) == %{}
+    end
+
+    test "returns empty map for non-map responses (catch-all defensive clause)" do
+      # Act / Assert — covers the safety net for future call-site changes
+      assert Retry.extract_headers({:error, :timeout}) == %{}
+      assert Retry.extract_headers(:unexpected) == %{}
+    end
+  end
+
   describe "parse_retry_after_header/1" do
     test "parses lowercase 'retry-after' key with list value (Req.Response style)" do
       # Arrange
