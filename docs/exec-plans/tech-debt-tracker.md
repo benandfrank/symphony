@@ -20,12 +20,13 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
 | DynamicTool | `linear_graphql` tool does not validate and reject multi-operation GraphQL documents before sending them to Linear | ClickUp assignee routing follow-up | — | 2026-03-06 |
-| Tracker | `Tracker` behaviour exposes `create_comment/2` but not comment update, so programmatic persistent workpad comment editing still depends on tracker-specific dynamic tools | ClickUp assignee routing follow-up | — | 2026-03-06 |
+
 
 ## Closed
 
 | Area | Finding | Resolution | Ticket | Closed |
 |------|---------|-----------|--------|--------|
+| Tracker | `Tracker` behaviour exposed `create_comment/2` but not `update_comment/2`, forcing agents to use tracker-specific dynamic tools for workpad edits | Added `update_comment/2` to `Tracker` behaviour, dispatcher, `Memory`, `Linear.Adapter` (`commentUpdate` mutation), and `ClickUp.Adapter` (`PUT /comment/{id}`). | — | 2026-03-11 |
 | ClickUp / Linear | ClickUp and Linear clients treated HTTP 429 like any other API error and did not honor `Retry-After` | Added `Tracker.Retry` helper with bounded exponential backoff and `Retry-After` header support; wired into `ClickUp.Client` (all request paths) and `Linear.Client.graphql/3`; 100% test coverage with injectable `sleep_fun`. | — | 2026-03-11 |
 | Config | ClickUp config contract mismatch: implementation relied on `tracker.project_slug`; add and prefer `tracker.list_id` with fallback for compatibility | Added `tracker.list_id` to schema/extraction; `tracker_project_id/0` now resolves `list_id || project_slug` for ClickUp. Added config tests for preferred and fallback behavior. | — | 2026-03-05 |
 | Config | `tracker_assignee/0` env var fallback hardcoded `LINEAR_ASSIGNEE` for all tracker kinds including ClickUp | `tracker_assignee/0` now uses tracker-kind-aware env fallback (`CLICKUP_ASSIGNEE` for ClickUp, `LINEAR_ASSIGNEE` otherwise). Added ClickUp config test. | — | 2026-03-05 |

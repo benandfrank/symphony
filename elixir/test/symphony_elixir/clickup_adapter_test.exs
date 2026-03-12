@@ -49,6 +49,7 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
       assert function_exported?(Adapter, :fetch_issues_by_states, 1)
       assert function_exported?(Adapter, :fetch_issue_states_by_ids, 1)
       assert function_exported?(Adapter, :create_comment, 2)
+      assert function_exported?(Adapter, :update_comment, 2)
       assert function_exported?(Adapter, :update_issue_state, 2)
     end
 
@@ -163,6 +164,46 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
 
       # Assert
       assert {:error, {:clickup_api_status, 429}} = result
+    end
+
+    test "update_comment returns ok on successful REST write" do
+      # Arrange
+      clickup_workflow!()
+
+      # Act
+      result =
+        Adapter.update_comment("comment-42", "revised text",
+          rest_fun: fn method, path, body ->
+            assert {method, path, body} == {"PUT", "/comment/comment-42", %{"comment_text" => "revised text"}}
+            {:ok, %{}}
+          end
+        )
+
+      # Assert
+      assert :ok = result
+    end
+
+    test "update_comment returns missing token error when token is absent" do
+      # Arrange
+      clickup_workflow!(tracker_api_token: nil)
+
+      # Act
+      result = Adapter.update_comment("comment-42", "revised text")
+
+      # Assert
+      assert {:error, :missing_tracker_api_token} = result
+    end
+
+    test "update_comment returns passthrough errors from REST writes" do
+      # Arrange
+      clickup_workflow!()
+
+      # Act
+      result =
+        Adapter.update_comment("comment-42", "text", rest_fun: fn _method, _path, _body -> {:error, {:clickup_api_status, 404}} end)
+
+      # Assert
+      assert {:error, {:clickup_api_status, 404}} = result
     end
 
     test "update_issue_state returns ok on successful REST write" do

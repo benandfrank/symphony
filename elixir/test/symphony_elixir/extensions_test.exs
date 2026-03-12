@@ -149,12 +149,15 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
     assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
+    assert :ok = SymphonyElixir.Tracker.update_comment("comment-1", "updated body")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
+    assert_receive {:memory_tracker_comment_update, "comment-1", "updated body"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
 
     Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
+    assert :ok = Memory.update_comment("comment-1", "quiet update")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
@@ -170,6 +173,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:error, :missing_linear_api_token} = Adapter.fetch_issues_by_states(["Todo"])
     assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.fetch_issue_states_by_ids(["issue-1"])
     assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.create_comment("issue-1", "hello")
+    assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.update_comment("comment-1", "hello")
     assert {:error, {:linear_api_request, :missing_linear_api_token}} = Adapter.update_issue_state("issue-1", "Done")
   end
 
@@ -238,6 +242,33 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert {:error, :comment_create_failed} =
              Adapter.create_comment("issue-1", "odd", graphql_fun: fn _query, _variables -> :unexpected end)
+
+    assert :ok =
+             Adapter.update_comment("comment-1", "new text",
+               graphql_fun: fn query, variables ->
+                 send(test_pid, {:graphql_called, query, variables})
+                 {:ok, %{"data" => %{"commentUpdate" => %{"success" => true}}}}
+               end
+             )
+
+    assert_receive {:graphql_called, update_comment_query, %{body: "new text", commentId: "comment-1"}}
+    assert update_comment_query =~ "commentUpdate"
+
+    assert {:error, :comment_update_failed} =
+             Adapter.update_comment("comment-1", "broken",
+               graphql_fun: fn _query, _variables ->
+                 {:ok, %{"data" => %{"commentUpdate" => %{"success" => false}}}}
+               end
+             )
+
+    assert {:error, :boom} =
+             Adapter.update_comment("comment-1", "boom", graphql_fun: fn _query, _variables -> {:error, :boom} end)
+
+    assert {:error, :comment_update_failed} =
+             Adapter.update_comment("comment-1", "weird", graphql_fun: fn _query, _variables -> {:ok, %{"data" => %{}}} end)
+
+    assert {:error, :comment_update_failed} =
+             Adapter.update_comment("comment-1", "odd", graphql_fun: fn _query, _variables -> :unexpected end)
 
     {:ok, graphql_pid} =
       Agent.start_link(fn ->

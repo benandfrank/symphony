@@ -87,9 +87,9 @@ State is purely in-memory; recovery after restart is driven by re-polling the tr
 
 ### 5. Integration Layer — `SymphonyElixir.Tracker`, `SymphonyElixir.Linear.*`, `SymphonyElixir.ClickUp.*`
 
-`Tracker` is the adapter boundary: a behaviour with five callbacks
+`Tracker` is the adapter boundary: a behaviour with six callbacks
 (`fetch_candidate_issues/0`, `fetch_issues_by_states/1`, `fetch_issue_states_by_ids/1`,
-`create_comment/2`, `update_issue_state/2`). The orchestrator and agent runner call only the
+`create_comment/2`, `update_comment/2`, `update_issue_state/2`). The orchestrator and agent runner call only the
 `Tracker` module; they have no knowledge of which backend is active.
 
 Current adapters:

@@ -15,6 +15,14 @@ defmodule SymphonyElixir.Linear.Adapter do
   }
   """
 
+  @update_comment_mutation """
+  mutation SymphonyUpdateComment($commentId: String!, $body: String!) {
+    commentUpdate(id: $commentId, input: {body: $body}) {
+      success
+    }
+  }
+  """
+
   @update_state_mutation """
   mutation SymphonyUpdateIssueState($issueId: String!, $stateId: String!) {
     issueUpdate(id: $issueId, input: {stateId: $stateId}) {
@@ -63,6 +71,20 @@ defmodule SymphonyElixir.Linear.Adapter do
       false -> {:error, :comment_create_failed}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :comment_create_failed}
+    end
+  end
+
+  @spec update_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def update_comment(comment_id, body, opts \\ []) when is_binary(comment_id) and is_binary(body) do
+    graphql_fun = Keyword.get(opts, :graphql_fun, &Client.graphql/2)
+
+    with {:ok, response} <- graphql_fun.(@update_comment_mutation, %{commentId: comment_id, body: body}),
+         true <- get_in(response, ["data", "commentUpdate", "success"]) == true do
+      :ok
+    else
+      false -> {:error, :comment_update_failed}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :comment_update_failed}
     end
   end
 

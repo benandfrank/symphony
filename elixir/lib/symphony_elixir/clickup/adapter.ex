@@ -33,6 +33,15 @@ defmodule SymphonyElixir.ClickUp.Adapter do
   end
 
   @impl true
+  def update_comment(comment_id, body, opts \\ []) do
+    Keyword.get(opts, :rest_fun, &Client.rest/3).("PUT", "/comment/#{comment_id}", %{"comment_text" => body})
+    |> case do
+      {:ok, _resp} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @impl true
   def update_issue_state(issue_id, state_name, opts \\ []) do
     Keyword.get(opts, :rest_fun, &Client.rest/3).("PUT", "/task/#{issue_id}", %{"status" => state_name})
     |> case do
