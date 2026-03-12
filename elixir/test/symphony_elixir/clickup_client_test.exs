@@ -515,6 +515,76 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       # Assert
       assert {:error, {:clickup_task_fetch_exit, _reason}} = result
     end
+
+    test "retries 429 from single task fetch and succeeds" do
+      # Arrange
+      clickup_workflow!()
+
+      responses = Agent.start_link(fn -> [:rate_limited, :ok_task, :ok_dep] end) |> then(fn {:ok, pid} -> pid end)
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            {:ok, %{status: 200, body: %{"dependencies" => []}}}
+
+          url =~ "/task/t-1" ->
+            Agent.get_and_update(responses, fn [h | t] -> {h, t} end)
+            |> case do
+              :rate_limited -> {:ok, %{status: 429, body: %{}}}
+              :ok_task -> {:ok, %{status: 200, body: %{"id" => "t-1", "name" => "Task", "status" => %{"status" => "done"}, "tags" => []}}}
+            end
+        end
+      end
+
+      recorded_delays = :ets.new(:ids_task_retry, [:bag, :public])
+
+      sleep_fun = fn ms ->
+        :ets.insert(recorded_delays, {:delay, ms})
+        :ok
+      end
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun, sleep_fun: sleep_fun)
+
+      # Assert
+      assert {:ok, [%Issue{id: "t-1"}]} = result
+      assert [{:delay, _}] = :ets.lookup(recorded_delays, :delay)
+    end
+
+    test "retries 429 from dependency endpoint during reconciliation and succeeds" do
+      # Arrange
+      clickup_workflow!()
+
+      dep_responses = Agent.start_link(fn -> [:rate_limited, :ok] end) |> then(fn {:ok, pid} -> pid end)
+
+      request_fun = fn :get, url, _headers, _body ->
+        cond do
+          url =~ "/task/t-1/dependency" ->
+            Agent.get_and_update(dep_responses, fn [h | t] -> {h, t} end)
+            |> case do
+              :rate_limited -> {:ok, %{status: 429, body: %{}}}
+              :ok -> {:ok, %{status: 200, body: %{"dependencies" => []}}}
+            end
+
+          url =~ "/task/t-1" ->
+            {:ok, %{status: 200, body: %{"id" => "t-1", "name" => "Task", "status" => %{"status" => "done"}, "tags" => []}}}
+        end
+      end
+
+      recorded_delays = :ets.new(:ids_dep_retry, [:bag, :public])
+
+      sleep_fun = fn ms ->
+        :ets.insert(recorded_delays, {:delay, ms})
+        :ok
+      end
+
+      # Act
+      result = Client.fetch_issue_states_by_ids(["t-1"], request_fun: request_fun, sleep_fun: sleep_fun)
+
+      # Assert
+      assert {:ok, [%Issue{id: "t-1"}]} = result
+      assert [{:delay, _}] = :ets.lookup(recorded_delays, :delay)
+    end
   end
 
   describe "rest/4" do
@@ -593,6 +663,54 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
 
       # Assert
       assert {:error, :missing_tracker_api_token} = result
+    end
+
+    test "retries 429 response and succeeds on the next attempt" do
+      # Arrange
+      clickup_workflow!()
+
+      responses = Agent.start_link(fn -> [:rate_limited, :ok] end) |> then(fn {:ok, pid} -> pid end)
+
+      request_fun = fn :get, _url, _headers, _body ->
+        Agent.get_and_update(responses, fn [h | t] -> {h, t} end)
+        |> case do
+          :rate_limited -> {:ok, %{status: 429, body: %{}}}
+          :ok -> {:ok, %{status: 200, body: %{"id" => "t-1"}}}
+        end
+      end
+
+      recorded_delays = :ets.new(:rest_retry_delays, [:bag, :public])
+
+      sleep_fun = fn ms ->
+        :ets.insert(recorded_delays, {:delay, ms})
+        :ok
+      end
+
+      # Act
+      result = Client.rest(:get, "/task/t-1", nil, request_fun: request_fun, sleep_fun: sleep_fun)
+
+      # Assert
+      assert {:ok, %{"id" => "t-1"}} = result
+      assert [{:delay, _}] = :ets.lookup(recorded_delays, :delay)
+    end
+
+    test "does not retry non-429 responses in rest/4" do
+      # Arrange
+      clickup_workflow!()
+
+      calls = :counters.new(1, [:atomics])
+
+      request_fun = fn :put, _url, _headers, _body ->
+        :counters.add(calls, 1, 1)
+        {:ok, %{status: 400, body: %{"err" => "bad request"}}}
+      end
+
+      # Act
+      result = Client.rest("PUT", "/task/t-1", %{}, request_fun: request_fun, sleep_fun: fn _ms -> :ok end)
+
+      # Assert
+      assert {:error, {:clickup_api_status, 400}} = result
+      assert :counters.get(calls, 1) == 1
     end
   end
 
@@ -1060,7 +1178,7 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       assert {:error, {:clickup_api_request, :timeout}} = result
     end
 
-    test "returns error when dependency fetch fails during candidate polling" do
+    test "returns error when dependency fetch exhausts all retries" do
       # Arrange
       clickup_workflow!()
 
@@ -1090,11 +1208,109 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
         end
       end
 
-      # Act
-      result = Client.fetch_candidate_issues(request_fun: request_fun)
+      # Act — inject no-op sleep_fun to keep test fast across retries
+      result = Client.fetch_candidate_issues(request_fun: request_fun, sleep_fun: fn _ms -> :ok end)
 
       # Assert
       assert {:error, {:clickup_api_status, 429}} = result
+    end
+
+    test "retries list endpoint 429 and succeeds on the next attempt" do
+      # Arrange
+      clickup_workflow!()
+
+      responses = Agent.start_link(fn -> [:rate_limited, :ok, :done] end) |> then(fn {:ok, pid} -> pid end)
+
+      request_fun = fn :get, url, _headers, _body ->
+        if url =~ "/list/list-900/task" do
+          Agent.get_and_update(responses, fn [h | t] -> {h, t} end)
+          |> case do
+            :rate_limited ->
+              {:ok, %{status: 429, body: %{}}}
+
+            :ok ->
+              task = %{"id" => "t-1", "name" => "Task", "status" => %{"status" => "Todo"}, "tags" => [], "dependencies" => []}
+              {:ok, %{status: 200, body: %{"tasks" => [task]}}}
+
+            :done ->
+              {:ok, %{status: 200, body: %{"tasks" => []}}}
+          end
+        else
+          {:ok, %{status: 200, body: %{"dependencies" => []}}}
+        end
+      end
+
+      recorded_delays = :ets.new(:clickup_list_delays, [:bag, :public])
+
+      sleep_fun = fn ms ->
+        :ets.insert(recorded_delays, {:delay, ms})
+        :ok
+      end
+
+      # Act
+      result = Client.fetch_candidate_issues(request_fun: request_fun, sleep_fun: sleep_fun)
+
+      # Assert
+      assert {:ok, [%Issue{id: "t-1"}]} = result
+      assert [{:delay, _}] = :ets.lookup(recorded_delays, :delay)
+    end
+
+    test "honors Retry-After header from list endpoint 429" do
+      # Arrange
+      clickup_workflow!()
+
+      responses = Agent.start_link(fn -> [:rate_limited, :ok, :done] end) |> then(fn {:ok, pid} -> pid end)
+
+      request_fun = fn :get, url, _headers, _body ->
+        if url =~ "/list/list-900/task" do
+          Agent.get_and_update(responses, fn [h | t] -> {h, t} end)
+          |> case do
+            :rate_limited ->
+              {:ok, %{status: 429, body: %{}, headers: %{"retry-after" => ["4"]}}}
+
+            :ok ->
+              task = %{"id" => "t-2", "name" => "Task", "status" => %{"status" => "Todo"}, "tags" => [], "dependencies" => []}
+              {:ok, %{status: 200, body: %{"tasks" => [task]}}}
+
+            :done ->
+              {:ok, %{status: 200, body: %{"tasks" => []}}}
+          end
+        else
+          {:ok, %{status: 200, body: %{"dependencies" => []}}}
+        end
+      end
+
+      recorded_delays = :ets.new(:clickup_list_retry_after, [:bag, :public])
+
+      sleep_fun = fn ms ->
+        :ets.insert(recorded_delays, {:delay, ms})
+        :ok
+      end
+
+      # Act
+      {:ok, _} = Client.fetch_candidate_issues(request_fun: request_fun, sleep_fun: sleep_fun)
+
+      # Assert — delay comes from Retry-After: 4 → 4_000 ms
+      assert [{:delay, 4_000}] = :ets.lookup(recorded_delays, :delay)
+    end
+
+    test "does not retry non-429 list status errors" do
+      # Arrange
+      clickup_workflow!()
+
+      calls = :counters.new(1, [:atomics])
+
+      request_fun = fn :get, _url, _headers, _body ->
+        :counters.add(calls, 1, 1)
+        {:ok, %{status: 503, body: %{}}}
+      end
+
+      # Act
+      result = Client.fetch_candidate_issues(request_fun: request_fun, sleep_fun: fn _ms -> :ok end)
+
+      # Assert — only one attempt, no retry
+      assert {:error, {:clickup_api_status, 503}} = result
+      assert :counters.get(calls, 1) == 1
     end
 
     test "returns error on non-200 status" do

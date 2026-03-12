@@ -97,6 +97,12 @@ Current adapters:
 - `ClickUp.Adapter` + `ClickUp.Client` — REST client for ClickUp.
 - `Tracker.Memory` — in-memory stub for tests and local development.
 
+Shared utilities within this layer:
+- `Tracker.Retry` — bounded HTTP 429 retry helper used by both `Linear.Client` and
+  `ClickUp.Client`. Honors the `Retry-After` response header when present; falls back to
+  exponential backoff. Only retries 429 responses; all other statuses and transport errors
+  pass through unchanged.
+
 Adding a new tracker means adding a new adapter module under
 `lib/symphony_elixir/<tracker>/` and a new clause in `Tracker.adapter/0`.
 
