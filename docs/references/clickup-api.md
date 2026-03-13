@@ -196,3 +196,9 @@ when the header is absent or invalid. Non-429 responses are never retried.
   list endpoint. All tasks are fetched and filtered in memory by `assignee_id`. This means
   Symphony fetches up to 100 tasks per page regardless of assignee, and filtering only takes
   effect after the full page response is received. For large lists this may cost extra API calls.
+- **Both connect and receive timeouts are set on every request** (`ClickUp.HTTP`).
+  The connect timeout (30 s) guards against the TCP handshake hanging; the receive timeout
+  (30 s) guards against a server that accepts the connection but then stalls sending response
+  headers. Without the receive timeout, a stalled server would block the sequential pagination
+  loop indefinitely. Both timeouts are below the `Task.async_stream` cap so that Req cuts
+  the request before the beam scheduler intervenes.

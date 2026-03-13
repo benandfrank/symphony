@@ -19,6 +19,7 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
+| Linear.Client | `post_graphql_request/2` uses `Req.post` with only `connect_options: [timeout: 30_000]` — no `receive_timeout`. A server that accepts the TCP connection but stalls sending response headers will block `Linear.Client.graphql/3` indefinitely (same class of bug fixed in `ClickUp.HTTP` in this cycle). | ClickUp contract test work | — | 2026-03-13 |
 
 ## Closed
 

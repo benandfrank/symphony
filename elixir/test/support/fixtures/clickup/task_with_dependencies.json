@@ -1,0 +1,33 @@
+{
+  "id": "task-dep-child",
+  "custom_id": "PROJ-99",
+  "name": "Task blocked by two others, blocks one",
+  "description": "Dependency contract test fixture",
+  "status": { "status": "in progress" },
+  "priority": null,
+  "assignees": [],
+  "tags": [],
+  "url": "https://app.clickup.com/t/task-dep-child",
+  "date_created": "1677000000000",
+  "date_updated": "1677100000000",
+  "dependencies": [
+    {
+      "task_id": "task-dep-child",
+      "depends_on": "task-blocker-1",
+      "type": 0,
+      "userid": "user-1"
+    },
+    {
+      "task_id": "task-dep-child",
+      "depends_on": "task-blocker-2",
+      "type": 0,
+      "userid": "user-2"
+    },
+    {
+      "task_id": "task-dep-blocked",
+      "depends_on": "task-dep-child",
+      "type": 1,
+      "userid": "user-3"
+    }
+  ]
+}
