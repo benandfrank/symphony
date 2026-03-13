@@ -126,10 +126,9 @@ that is outside the `clickup_api` path allowlist.
 
 ## Usage rules
 
-- Use `clickup_api` for ClickUp reads and writes; use `tracker_update_comment` for comment updates (see above).
-- **To update an existing workpad comment, use `tracker_update_comment` — not `clickup_api`.**
-  The correct ClickUp endpoint (`PUT /comment/{comment_id}`) uses the `/comment/` prefix, which
-  is outside the `clickup_api` path allowlist.
+- Use `clickup_api` for ClickUp reads and writes; use `tracker_update_comment` for comment
+  updates — ClickUp's update endpoint (`PUT /comment/{comment_id}`) uses the `/comment/`
+  prefix, which is outside the `clickup_api` path allowlist.
 - Do not introduce shell-based `curl` helpers for ClickUp API access.
 - Keep requests narrowly scoped; fetch only the fields/tasks you need.
 - For status transitions, use the status name string directly — no ID
