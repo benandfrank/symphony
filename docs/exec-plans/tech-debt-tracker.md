@@ -20,7 +20,6 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
 
-
 ## Closed
 
 | Area | Finding | Resolution | Ticket | Closed |

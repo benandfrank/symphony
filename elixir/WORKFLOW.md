@@ -68,10 +68,10 @@ Title: {{ issue.title }}
 Current status: {{ issue.state }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
-{% if workpad_comment_id %}
+{%- if workpad_comment_id %}
 Workpad comment ID: {{ workpad_comment_id }}
 Use this ID with the `tracker_update_comment` tool to update the workpad comment in-place.
-{% endif %}
+{%- endif %}
 
 Description:
 {% if issue.description %}

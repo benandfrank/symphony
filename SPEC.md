@@ -481,7 +481,7 @@ Template input variables:
   - `null`/absent on first attempt.
   - Integer on retry or continuation run.
 - `workpad_comment_id` (string or null)
-  - The ID of the persistent workpad comment created on the tracker before the first Codex turn.
+  - The ID of the workpad comment created at the start of this agent session.
   - `null` when the issue has no tracker ID or when comment creation fails (graceful degradation).
   - Agents should use this ID with the `tracker_update_comment` tool to update the workpad
     comment in-place rather than creating new comments.
