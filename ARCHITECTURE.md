@@ -87,15 +87,21 @@ State is purely in-memory; recovery after restart is driven by re-polling the tr
 
 ### 5. Integration Layer — `SymphonyElixir.Tracker`, `SymphonyElixir.Linear.*`, `SymphonyElixir.ClickUp.*`
 
-`Tracker` is the adapter boundary: a behaviour with five callbacks
+`Tracker` is the adapter boundary: a behaviour with six callbacks
 (`fetch_candidate_issues/0`, `fetch_issues_by_states/1`, `fetch_issue_states_by_ids/1`,
-`create_comment/2`, `update_issue_state/2`). The orchestrator and agent runner call only the
+`create_comment/2`, `update_comment/2`, `update_issue_state/2`). The orchestrator and agent runner call only the
 `Tracker` module; they have no knowledge of which backend is active.
 
 Current adapters:
 - `Linear.Adapter` + `Linear.Client` — GraphQL-over-HTTP client for Linear.
 - `ClickUp.Adapter` + `ClickUp.Client` — REST client for ClickUp.
 - `Tracker.Memory` — in-memory stub for tests and local development.
+
+Shared utilities within this layer:
+- `Tracker.Retry` — bounded HTTP 429 retry helper used by both `Linear.Client` and
+  `ClickUp.Client`. Honors the `Retry-After` response header when present; falls back to
+  exponential backoff. Only retries 429 responses; all other statuses and transport errors
+  pass through unchanged.
 
 Adding a new tracker means adding a new adapter module under
 `lib/symphony_elixir/<tracker>/` and a new clause in `Tracker.adapter/0`.

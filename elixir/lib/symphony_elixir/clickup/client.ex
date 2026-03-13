@@ -6,6 +6,7 @@ defmodule SymphonyElixir.ClickUp.Client do
   require Logger
   alias SymphonyElixir.ClickUp.HTTP, as: ClickUpHTTP
   alias SymphonyElixir.{Config, Issue}
+  alias SymphonyElixir.Tracker.Retry
 
   @max_parallel_fetches 5
   @connect_timeout_ms 30_000
@@ -14,6 +15,8 @@ defmodule SymphonyElixir.ClickUp.Client do
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
+    opts = put_retrying_request_fun(opts)
+
     with {:ok, _token} <- require_token(),
          {:ok, list_id} <- require_list_id() do
       statuses = Config.tracker_active_states()
@@ -29,6 +32,8 @@ defmodule SymphonyElixir.ClickUp.Client do
     if normalized == [] do
       {:ok, []}
     else
+      opts = put_retrying_request_fun(opts)
+
       with {:ok, _token} <- require_token(),
            {:ok, list_id} <- require_list_id() do
         assignee_filter = routing_assignee_filter()
@@ -44,6 +49,8 @@ defmodule SymphonyElixir.ClickUp.Client do
     if ids == [] do
       {:ok, []}
     else
+      opts = put_retrying_request_fun(opts)
+
       with {:ok, _token} <- require_token() do
         assignee_filter = routing_assignee_filter()
         do_fetch_by_ids(ids, assignee_filter, opts)
@@ -56,7 +63,8 @@ defmodule SymphonyElixir.ClickUp.Client do
     with {:ok, headers} <- auth_headers() do
       url = Config.tracker_endpoint() |> String.trim_trailing("/")
       full_url = url <> path
-      request_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
+      opts = put_retrying_request_fun(opts)
+      request_fun = Keyword.get(opts, :request_fun)
 
       case request_fun.(method_atom(method), full_url, headers, body) do
         {:ok, %{status: status, body: resp_body}} when status in 200..299 ->
@@ -78,6 +86,21 @@ defmodule SymphonyElixir.ClickUp.Client do
   end
 
   # -- Private --
+
+  defp put_retrying_request_fun(opts) do
+    raw_fun = Keyword.get(opts, :request_fun, &ClickUpHTTP.request/4)
+    sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
+
+    retrying_fun = fn method, url, headers, body ->
+      Retry.with_rate_limit_retry(
+        fn -> raw_fun.(method, url, headers, body) end,
+        sleep_fun: sleep_fun,
+        caller: "clickup"
+      )
+    end
+
+    Keyword.put(opts, :request_fun, retrying_fun)
+  end
 
   defp do_fetch_by_list(list_id, statuses, assignee_filter, opts) do
     do_fetch_by_list_page(list_id, statuses, assignee_filter, opts, 0, [])

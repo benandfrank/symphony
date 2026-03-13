@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Linear.Client do
 
   require Logger
   alias SymphonyElixir.{Config, Issue}
+  alias SymphonyElixir.Tracker.Retry
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -162,7 +163,16 @@ defmodule SymphonyElixir.Linear.Client do
   def graphql(query, variables \\ %{}, opts \\ [])
       when is_binary(query) and is_map(variables) and is_list(opts) do
     payload = build_graphql_payload(query, variables, Keyword.get(opts, :operation_name))
-    request_fun = Keyword.get(opts, :request_fun, &post_graphql_request/2)
+    raw_request_fun = Keyword.get(opts, :request_fun, &post_graphql_request/2)
+    sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
+    retry_opts = build_retry_opts(opts, sleep_fun)
+
+    request_fun = fn p, h ->
+      Retry.with_rate_limit_retry(
+        fn -> raw_request_fun.(p, h) end,
+        retry_opts
+      )
+    end
 
     with {:ok, headers} <- graphql_headers(),
          {:ok, %{status: 200, body: body}} <- request_fun.(payload, headers) do
@@ -336,6 +346,18 @@ defmodule SymphonyElixir.Linear.Client do
            {"Content-Type", "application/json"}
          ]}
     end
+  end
+
+  defp build_retry_opts(opts, sleep_fun) do
+    base = [sleep_fun: sleep_fun, caller: "linear"]
+
+    [:max_attempts, :base_backoff_ms, :max_backoff_ms]
+    |> Enum.reduce(base, fn key, acc ->
+      case Keyword.fetch(opts, key) do
+        {:ok, value} -> Keyword.put(acc, key, value)
+        :error -> acc
+      end
+    end)
   end
 
   defp post_graphql_request(payload, headers) do

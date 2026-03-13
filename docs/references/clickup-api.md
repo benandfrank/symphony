@@ -154,9 +154,14 @@ dependencies inline.
 ```
 
 - HTTP 401: invalid or expired token
-- HTTP 429: rate limit exceeded (retry after `Retry-After` header seconds)
+- HTTP 429: rate limit exceeded — `Retry-After` header contains seconds to wait before retrying
 - HTTP 404: task/list not found
 - HTTP 500+: server error (retry with backoff)
+
+**Rate limit handling in Symphony:** `ClickUp.Client` automatically retries 429 responses using
+`Tracker.Retry`. It honors the `Retry-After` header when present and parseable (positive integer
+seconds). Falls back to bounded exponential backoff (default: 1 s base, 30 s cap, 3 max attempts)
+when the header is absent or invalid. Non-429 responses are never retried.
 
 ---
 

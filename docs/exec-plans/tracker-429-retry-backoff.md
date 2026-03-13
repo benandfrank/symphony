@@ -1,6 +1,6 @@
 # Execution Plan: Tracker 429 Retry / Backoff
 
-**Status:** Proposed  
+**Status:** Done  
 **Owner:** Unassigned  
 **Related tech-debt entries:** `docs/exec-plans/tech-debt-tracker.md` (ClickUp 429 / `Retry-After`)  
 **Cycle:** Think → Spec → 🔴 Red → Implement → 🟢 Green → 🔵 Refactor → Deliver

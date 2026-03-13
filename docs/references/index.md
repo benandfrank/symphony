@@ -18,3 +18,4 @@ layer, reducing hallucination on third-party API details.
 | File | Covers |
 |------|--------|
 | [clickup-api.md](clickup-api.md) | ClickUp REST API: auth, task fields, pagination, status update, comments, dependencies |
+| [linear-api.md](linear-api.md) | Linear GraphQL API: auth, issue fields, pagination, blockers, rate limits |
