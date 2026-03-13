@@ -209,6 +209,19 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["success"] == true
   end
 
+  test "linear_graphql allows anonymous operations (shorthand query)" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "{ viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_2"}}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
   test "linear_graphql rejects blank raw query strings even when using the default client" do
     response = DynamicTool.execute("linear_graphql", "   ")
 

@@ -219,6 +219,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp parse_nonempty_comment_fields(_comment_id, _body), do: {:error, :invalid_update_comment_arguments}
 
+  # Matches named operation declarations (e.g. "query Foo {", "mutation Bar {").
+  # Anonymous operations (e.g. "{ viewer { id } }") and fragments produce 0 matches
+  # and are correctly allowed through as single-operation documents.
   @multi_operation_pattern ~r/\b(?:query|mutation|subscription)\s+\w/
 
   defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
