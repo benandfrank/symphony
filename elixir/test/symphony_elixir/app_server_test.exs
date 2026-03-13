@@ -431,14 +431,17 @@ defmodule SymphonyElixir.AppServerTest do
                  # is only valid while the test setup emits a linear workflow.
                  payload["id"] == 2 and
                    case get_in(payload, ["params", "dynamicTools"]) do
-                     [
-                       %{
-                         "description" => description,
-                         "inputSchema" => %{"required" => ["query"]},
-                         "name" => "linear_graphql"
-                       }
-                     ] ->
-                       description =~ "Linear"
+                     tools when is_list(tools) ->
+                       case Enum.find(tools, &(&1["name"] == "linear_graphql")) do
+                         %{
+                           "description" => description,
+                           "inputSchema" => %{"required" => ["query"]}
+                         } ->
+                           description =~ "Linear"
+
+                         _ ->
+                           false
+                       end
 
                      _ ->
                        false
