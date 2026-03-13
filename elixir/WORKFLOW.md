@@ -7,7 +7,7 @@
 #   # Optional: route only issues assigned to this worker identity (ClickUp numeric user ID).
 #   # assignee: "12345678"
 #   active_states:
-#     - in progress
+#     - in progress   # Replace with your actual ClickUp space status names
 #   terminal_states:
 #     - complete
 #     - closed

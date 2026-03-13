@@ -69,6 +69,8 @@ Status names are case-insensitive in the ClickUp API.
 }
 ```
 
+Save `response.id` from the POST response — that is the `comment_id` used by `tracker_update_comment`.
+
 ### List tasks in a list (filtered by status)
 
 ```json
@@ -124,7 +126,7 @@ that is outside the `clickup_api` path allowlist.
 
 ## Usage rules
 
-- Use `clickup_api` for all ClickUp interactions during agent sessions.
+- Use `clickup_api` for ClickUp reads and writes; use `tracker_update_comment` for comment updates (see above).
 - **To update an existing workpad comment, use `tracker_update_comment` — not `clickup_api`.**
   The correct ClickUp endpoint (`PUT /comment/{comment_id}`) uses the `/comment/` prefix, which
   is outside the `clickup_api` path allowlist.
