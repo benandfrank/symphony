@@ -222,6 +222,49 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["success"] == true
   end
 
+  test "linear_graphql passes anonymous multi-operation to Linear (known regex limitation)" do
+    # Two anonymous ops are invalid GraphQL but bypass the named-op guard —
+    # the check only counts named operation declarations.
+    # Linear returns the error rather than the tool rejecting client-side.
+    query = "{ viewer { id } } { teams { nodes { id } } }"
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => query},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"errors" => [%{"message" => "Must provide operation name"}]}}
+        end
+      )
+
+    # Reaches Linear; graphql_response marks it failed because of the errors list.
+    assert response["success"] == false
+  end
+
+  test "linear_graphql does not false-positive on operation keywords in string literals" do
+    # A mutation whose hardcoded argument text contains "subscription" and "query"
+    # must not be rejected as a multi-operation document.
+    query = ~S"""
+    mutation CreateIssue {
+      issueCreate(input: {
+        title: "Fix subscription handler",
+        description: "Run query to verify"
+      }) { issue { id } }
+    }
+    """
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => query},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"issueCreate" => %{"issue" => %{"id" => "issue-1"}}}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
   test "linear_graphql rejects blank raw query strings even when using the default client" do
     response = DynamicTool.execute("linear_graphql", "   ")
 

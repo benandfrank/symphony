@@ -100,6 +100,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       {"clickup", @clickup_api_tool} ->
         execute_clickup_api(arguments, opts)
 
+      # Guard mirrors tool_specs/0 — update both when adding a new tracker kind.
       {tracker_kind, @tracker_update_comment_tool} when tracker_kind in ["linear", "clickup"] ->
         execute_tracker_update_comment(arguments, opts)
 
@@ -220,9 +221,13 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   defp parse_nonempty_comment_fields(_comment_id, _body), do: {:error, :invalid_update_comment_arguments}
 
   # Matches named operation declarations (e.g. "query Foo {", "mutation Bar {").
-  # Anonymous operations (e.g. "{ viewer { id } }") and fragments produce 0 matches
-  # and are correctly allowed through as single-operation documents.
+  # Anonymous operations (e.g. "{ viewer { id } }") produce 0 matches and are allowed.
+  # Known limitation: two anonymous operations are not detected and fall through to Linear.
   @multi_operation_pattern ~r/\b(?:query|mutation|subscription)\s+\w/
+
+  # Strips double-quoted string literals before scanning for operation keywords so that
+  # field values like "Fix subscription handler" don't trigger a false-positive rejection.
+  @string_literal_pattern ~r/"(?:[^"\\]|\\.)*"/
 
   defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
     case String.trim(arguments) do
@@ -338,7 +343,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp validate_single_operation(query, variables) do
-    if length(Regex.scan(@multi_operation_pattern, query)) > 1 do
+    stripped = Regex.replace(@string_literal_pattern, query, "\"\"")
+
+    if length(Regex.scan(@multi_operation_pattern, stripped)) > 1 do
       {:error, :multi_operation_query}
     else
       {:ok, query, variables}
