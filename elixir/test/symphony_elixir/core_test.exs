@@ -932,7 +932,8 @@ defmodule SymphonyElixir.CoreTest do
                AgentRunner.run(
                  issue,
                  test_pid,
-                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+                 issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end,
+                 create_comment_fun: fn _id, _body -> {:ok, "test-comment-id"} end
                )
 
       assert_receive {:codex_worker_update, "issue-live-updates",
@@ -1049,7 +1050,12 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert :ok =
+               AgentRunner.run(issue, nil,
+                 issue_state_fetcher: state_fetcher,
+                 create_comment_fun: fn _id, _body -> {:ok, "test-comment-id"} end
+               )
+
       assert_receive {:issue_state_fetch, 1}
       assert_receive {:issue_state_fetch, 2}
 
@@ -1166,7 +1172,11 @@ defmodule SymphonyElixir.CoreTest do
         labels: []
       }
 
-      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+      assert :ok =
+               AgentRunner.run(issue, nil,
+                 issue_state_fetcher: state_fetcher,
+                 create_comment_fun: fn _id, _body -> {:ok, "test-comment-id"} end
+               )
 
       trace = File.read!(trace_file)
       assert length(String.split(trace, "RUN", trim: true)) == 1
@@ -1524,6 +1534,208 @@ defmodule SymphonyElixir.CoreTest do
                  false
                end
              end)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Workpad comment injection
+  # ---------------------------------------------------------------------------
+
+  test "prompt builder renders workpad_comment_id when present" do
+    workflow_prompt = "{% if workpad_comment_id %}comment={{ workpad_comment_id }}{% endif %}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-800",
+      title: "Inject comment id",
+      description: "Test",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-800",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, workpad_comment_id: "abc-123")
+
+    assert prompt == "comment=abc-123"
+  end
+
+  test "prompt builder omits workpad_comment_id block when id is nil" do
+    workflow_prompt = "{% if workpad_comment_id %}comment={{ workpad_comment_id }}{% endif %}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-801",
+      title: "No comment id",
+      description: "Test",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-801",
+      labels: []
+    }
+
+    prompt = PromptBuilder.build_prompt(issue)
+
+    assert prompt == ""
+  end
+
+  test "agent runner creates workpad comment before first turn and injects id into prompt" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workpad-inject-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
+      printf 'RUN\\n' >> "$trace_file"
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        case "$count" in
+          1) printf '%s\\n' '{"id":1,"result":{}}';;
+          3) printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-wp"}}}';;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-wp"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+      System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
+
+      on_exit(fn -> System.delete_env("SYMP_TEST_CODEx_TRACE") end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        prompt: "ticket={{ issue.identifier }} comment={{ workpad_comment_id }}"
+      )
+
+      parent = self()
+
+      issue = %Issue{
+        id: "issue-workpad",
+        identifier: "MT-900",
+        title: "Workpad injection test",
+        description: "Verify comment_id in prompt",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-900",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(issue, nil,
+                 issue_state_fetcher: fn [_id] -> {:ok, [%{issue | state: "Done"}]} end,
+                 create_comment_fun: fn _id, _body ->
+                   send(parent, :workpad_comment_created)
+                   {:ok, "injected-comment-id"}
+                 end
+               )
+
+      assert_receive :workpad_comment_created, 500
+
+      lines = File.read!(trace_file) |> String.split("\n", trim: true)
+
+      first_turn_input =
+        lines
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.filter(&(&1["method"] == "turn/start"))
+        |> List.first()
+        |> then(fn payload ->
+          get_in(payload, ["params", "input"])
+          |> Enum.map_join("", &Map.get(&1, "text", ""))
+        end)
+
+      assert first_turn_input =~ "comment=injected-comment-id"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "agent runner continues without comment id when create_comment fails" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workpad-fail-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test")
+      System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      count=0
+      while IFS= read -r line; do
+        count=$((count + 1))
+        case "$count" in
+          1) printf '%s\\n' '{"id":1,"result":{}}';;
+          3) printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-fail"}}}';;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-fail"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        codex_command: "#{codex_binary} app-server",
+        prompt: "{% if workpad_comment_id %}id={{ workpad_comment_id }}{% else %}no-comment{% endif %}"
+      )
+
+      issue = %Issue{
+        id: "issue-workpad-fail",
+        identifier: "MT-901",
+        title: "Workpad failure degrades gracefully",
+        description: "Run must succeed even if create_comment fails",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-901",
+        labels: []
+      }
+
+      assert :ok =
+               AgentRunner.run(issue, nil,
+                 issue_state_fetcher: fn [_id] -> {:ok, [%{issue | state: "Done"}]} end,
+                 create_comment_fun: fn _id, _body -> {:error, :network_error} end
+               )
     after
       File.rm_rf(test_root)
     end
