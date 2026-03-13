@@ -219,26 +219,19 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp parse_nonempty_comment_fields(_comment_id, _body), do: {:error, :invalid_update_comment_arguments}
 
+  @multi_operation_pattern ~r/\b(?:query|mutation|subscription)\s+\w/
+
   defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
     case String.trim(arguments) do
       "" -> {:error, :missing_query}
-      query -> {:ok, query, %{}}
+      query -> validate_single_operation(query, %{})
     end
   end
 
   defp normalize_linear_graphql_arguments(arguments) when is_map(arguments) do
-    case normalize_query(arguments) do
-      {:ok, query} ->
-        case normalize_variables(arguments) do
-          {:ok, variables} ->
-            {:ok, query, variables}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, query} <- normalize_query(arguments),
+         {:ok, variables} <- normalize_variables(arguments) do
+      validate_single_operation(query, variables)
     end
   end
 
@@ -341,6 +334,14 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     end
   end
 
+  defp validate_single_operation(query, variables) do
+    if length(Regex.scan(@multi_operation_pattern, query)) > 1 do
+      {:error, :multi_operation_query}
+    else
+      {:ok, query, variables}
+    end
+  end
+
   defp normalize_variables(arguments) do
     case Map.get(arguments, "variables") || Map.get(arguments, :variables) || %{} do
       variables when is_map(variables) -> {:ok, variables}
@@ -393,6 +394,14 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp encode_payload(payload), do: inspect(payload)
+
+  defp tool_error_payload(:multi_operation_query) do
+    %{
+      "error" => %{
+        "message" => "`linear_graphql` does not support multi-operation documents. Split into separate tool calls."
+      }
+    }
+  end
 
   defp tool_error_payload(:missing_query) do
     %{

@@ -147,9 +147,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["success"] == true
   end
 
-  test "linear_graphql passes multi-operation documents through unchanged" do
-    test_pid = self()
-
+  test "linear_graphql rejects multi-operation documents without calling Linear" do
     query = """
     query Viewer { viewer { id } }
     query Teams { teams { nodes { id } } }
@@ -159,15 +157,56 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       DynamicTool.execute(
         "linear_graphql",
         %{"query" => query},
-        linear_client: fn forwarded_query, variables, opts ->
-          send(test_pid, {:linear_client_called, forwarded_query, variables, opts})
-          {:ok, %{"errors" => [%{"message" => "Must provide operation name if query contains multiple operations."}]}}
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for multi-operation documents")
         end
       )
 
-    assert_received {:linear_client_called, forwarded_query, %{}, []}
-    assert forwarded_query == String.trim(query)
     assert response["success"] == false
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` does not support multi-operation documents. Split into separate tool calls."
+             }
+           }
+  end
+
+  test "linear_graphql rejects multi-operation documents when given as a raw string" do
+    query = "query Foo { viewer { id } } mutation Bar { noop }"
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        query,
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for multi-operation documents")
+        end
+      )
+
+    assert response["success"] == false
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` does not support multi-operation documents. Split into separate tool calls."
+             }
+           }
+  end
+
+  test "linear_graphql allows single named operation" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_1"}}}}
+        end
+      )
+
+    assert response["success"] == true
   end
 
   test "linear_graphql rejects blank raw query strings even when using the default client" do

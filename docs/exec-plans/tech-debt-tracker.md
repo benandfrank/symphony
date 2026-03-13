@@ -19,13 +19,13 @@ Do not expand scope to fix items here mid-ticket. Log and move on.
 
 | Area | Finding | Discovered in | Ticket | Added |
 |------|---------|--------------|--------|-------|
-| DynamicTool | `linear_graphql` tool does not validate and reject multi-operation GraphQL documents before sending them to Linear | ClickUp assignee routing follow-up | — | 2026-03-06 |
 
 ## Closed
 
 | Area | Finding | Resolution | Ticket | Closed |
 |------|---------|-----------|--------|--------|
 | Tracker | `Tracker` behaviour exposed `create_comment/2` but not `update_comment/2`, forcing agents to use tracker-specific dynamic tools for workpad edits | Added `update_comment/2` to `Tracker` behaviour, dispatcher, `Memory`, `Linear.Adapter` (`commentUpdate` mutation), and `ClickUp.Adapter` (`PUT /comment/{id}`). | — | 2026-03-11 |
+| DynamicTool | `linear_graphql` tool passed multi-operation GraphQL documents through to Linear instead of rejecting them client-side, wasting a network roundtrip and returning a confusing API error | Added `validate_single_operation/2` with a named-operation pattern; documents with 2+ named operations are rejected before the network call with a clear error message. | — | 2026-03-12 |
 | Tracker / DynamicTool | `create_comment/2` returned `:ok` instead of `{:ok, comment_id}`, making it impossible to chain create → update through the Tracker boundary. `DynamicTool` had no unified tool for workpad comment updates, forcing agents to fall back to tracker-specific raw API tools. | Changed `create_comment/2` callback and all adapters (Linear, ClickUp, Memory) to return `{:ok, comment_id}`. Added `tracker_update_comment` shared dynamic tool for both Linear and ClickUp that delegates to `Tracker.update_comment/2`. | — | 2026-03-12 |
 | ClickUp / Linear | ClickUp and Linear clients treated HTTP 429 like any other API error and did not honor `Retry-After` | Added `Tracker.Retry` helper with bounded exponential backoff and `Retry-After` header support; wired into `ClickUp.Client` (all request paths) and `Linear.Client.graphql/3`; 100% test coverage with injectable `sleep_fun`. | — | 2026-03-11 |
 | Config | ClickUp config contract mismatch: implementation relied on `tracker.project_slug`; add and prefer `tracker.list_id` with fallback for compatibility | Added `tracker.list_id` to schema/extraction; `tracker_project_id/0` now resolves `list_id || project_slug` for ClickUp. Added config tests for preferred and fallback behavior. | — | 2026-03-05 |
