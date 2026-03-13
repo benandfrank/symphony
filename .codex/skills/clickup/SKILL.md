@@ -89,17 +89,18 @@ Pagination: increment `page` (0, 1, 2, …) until `tasks` array is empty.
 }
 ```
 
-### Update a comment
+### Update a comment (workpad edits)
+
+Use the `tracker_update_comment` tool — not `clickup_api` — to update an existing comment.
+The ClickUp comment update endpoint (`PUT /comment/{comment_id}`) uses a `/comment/` path prefix
+that is outside the `clickup_api` path allowlist.
 
 ```json
 {
-  "method": "PUT",
-  "path": "/task/{task_id}/comment/{comment_id}",
-  "body": { "comment_text": "Updated workpad content." }
+  "comment_id": "{comment_id}",
+  "body": "Updated workpad content."
 }
 ```
-
-Note: ClickUp comment update path includes both `task_id` and `comment_id`.
 
 ### Fetch team information
 
@@ -116,7 +117,7 @@ Note: ClickUp comment update path includes both `task_id` and `comment_id`.
 |---------|--------------------------|------------------------|
 | Transport | GraphQL | REST |
 | State update | Resolve `stateId` first, then `issueUpdate` mutation | `PUT /task/{id}` with `{"status": "name"}` directly |
-| Comments | `commentCreate` / `commentUpdate` mutations | `POST` / `PUT` on `/task/{id}/comment` |
+| Comments | `commentCreate` / `commentUpdate` mutations | `POST /task/{id}/comment` to create; `tracker_update_comment` tool to update |
 | Assignees | Single `assignee` | Array of `assignees` |
 | Branch name | Native `branchName` field | Not available |
 | Labels | `labels.nodes[].name` | `tags[].name` |
@@ -124,9 +125,12 @@ Note: ClickUp comment update path includes both `task_id` and `comment_id`.
 ## Usage rules
 
 - Use `clickup_api` for all ClickUp interactions during agent sessions.
+- **To update an existing workpad comment, use `tracker_update_comment` — not `clickup_api`.**
+  The correct ClickUp endpoint (`PUT /comment/{comment_id}`) uses the `/comment/` prefix, which
+  is outside the `clickup_api` path allowlist.
 - Do not introduce shell-based `curl` helpers for ClickUp API access.
 - Keep requests narrowly scoped; fetch only the fields/tasks you need.
 - For status transitions, use the status name string directly — no ID
   resolution step is needed (unlike Linear).
 - Prefer the workpad comment pattern: one persistent comment per task for
-  progress tracking, updated via `PUT`.
+  progress tracking, updated via `tracker_update_comment`.

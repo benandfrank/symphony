@@ -94,6 +94,23 @@ Content-Type: application/json
 
 ---
 
+## Update Comment
+
+```
+PUT /comment/{comment_id}
+Content-Type: application/json
+
+{ "comment_text": "new body" }
+```
+
+- `comment_id` is the top-level `id` returned by `POST /task/{task_id}/comment`.
+- Response: `{}` (empty object on success).
+- Used by `Tracker.update_comment/2` via `ClickUp.Adapter`.
+- **Do not use `clickup_api` for this endpoint.** The `/comment/` path prefix is outside the
+  `clickup_api` allowlist. Use the `tracker_update_comment` dynamic tool instead.
+
+---
+
 ## Dependencies (Blocker Mapping)
 
 **Spike findings (corrected 2026-03-05):** ClickUp represents task dependencies in two ways.
@@ -175,3 +192,7 @@ when the header is absent or invalid. Non-429 responses are never retried.
   share the rate limit budget.
 - `assignees[].id` is an **integer** in ClickUp (Linear uses string UUIDs). Cast to string
   when normalizing to `Issue.assignee_id`.
+- **Assignee filtering is client-side.** Symphony does not pass `?assignees[]=` to the ClickUp
+  list endpoint. All tasks are fetched and filtered in memory by `assignee_id`. This means
+  Symphony fetches up to 100 tasks per page regardless of assignee, and filtering only takes
+  effect after the full page response is received. For large lists this may cost extra API calls.
