@@ -11,6 +11,9 @@ defmodule SymphonyElixir.Linear.Adapter do
   mutation SymphonyCreateComment($issueId: String!, $body: String!) {
     commentCreate(input: {issueId: $issueId, body: $body}) {
       success
+      comment {
+        id
+      }
     }
   }
   """
@@ -64,13 +67,14 @@ defmodule SymphonyElixir.Linear.Adapter do
   end
 
   @impl true
-  @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec create_comment(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def create_comment(issue_id, body, opts \\ []) when is_binary(issue_id) and is_binary(body) do
     graphql_fun = Keyword.get(opts, :graphql_fun, &Client.graphql/2)
 
     with {:ok, response} <- graphql_fun.(@create_comment_mutation, %{issueId: issue_id, body: body}),
-         true <- get_in(response, ["data", "commentCreate", "success"]) == true do
-      :ok
+         true <- get_in(response, ["data", "commentCreate", "success"]) == true,
+         comment_id when is_binary(comment_id) <- get_in(response, ["data", "commentCreate", "comment", "id"]) do
+      {:ok, comment_id}
     else
       false -> {:error, :comment_create_failed}
       {:error, reason} -> {:error, reason}

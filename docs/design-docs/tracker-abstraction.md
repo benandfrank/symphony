@@ -67,10 +67,14 @@ Linear-specific names, two hardcoded URL formats, two dynamic tools wired with `
    `Config.tracker_kind/0` to return the right tool for the active tracker.
 
    ```
-   tracker.kind == "linear"  →  advertise + execute  linear_graphql
-   tracker.kind == "clickup" →  advertise + execute  clickup_api
+   tracker.kind == "linear"  →  advertise + execute  linear_graphql, tracker_update_comment
+   tracker.kind == "clickup" →  advertise + execute  clickup_api, tracker_update_comment
    tracker.kind == "memory"  →  no dynamic tool advertised
    ```
+
+   `tracker_update_comment` is a second, shared tool exposed for every real tracker. It delegates
+   to `Tracker.update_comment/2` so agents can edit a workpad comment without needing to know
+   which backend is active.
 
    This is the cleanest extension point: adding a new tracker with its own agent-facing API
    requires only a new case in `DynamicTool`, not changes to the app-server session startup.

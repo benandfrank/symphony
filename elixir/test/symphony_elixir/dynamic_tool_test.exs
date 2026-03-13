@@ -7,21 +7,23 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     # Arrange
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
 
-    # Act / Assert
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "query" => _,
-                   "variables" => _
-                 },
-                 "required" => ["query"],
-                 "type" => "object"
+    # Act
+    specs = DynamicTool.tool_specs()
+    linear_tool = Enum.find(specs, &(&1["name"] == "linear_graphql"))
+
+    # Assert
+    assert %{
+             "description" => description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "query" => _,
+                 "variables" => _
                },
-               "name" => "linear_graphql"
-             }
-           ] = DynamicTool.tool_specs()
+               "required" => ["query"],
+               "type" => "object"
+             },
+             "name" => "linear_graphql"
+           } = linear_tool
 
     assert description =~ "Linear"
   end
@@ -35,22 +37,24 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       tracker_project_slug: nil
     )
 
-    # Act / Assert
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "body" => _,
-                   "method" => _,
-                   "path" => _
-                 },
-                 "required" => ["method", "path"],
-                 "type" => "object"
+    # Act
+    specs = DynamicTool.tool_specs()
+    clickup_tool = Enum.find(specs, &(&1["name"] == "clickup_api"))
+
+    # Assert
+    assert %{
+             "description" => description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "body" => _,
+                 "method" => _,
+                 "path" => _
                },
-               "name" => "clickup_api"
-             }
-           ] = DynamicTool.tool_specs()
+               "required" => ["method", "path"],
+               "type" => "object"
+             },
+             "name" => "clickup_api"
+           } = clickup_tool
 
     assert description =~ "ClickUp"
   end
@@ -74,7 +78,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql"]
+               "supportedTools" => ["linear_graphql", "tracker_update_comment"]
              }
            }
 
@@ -143,9 +147,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert response["success"] == true
   end
 
-  test "linear_graphql passes multi-operation documents through unchanged" do
-    test_pid = self()
-
+  test "linear_graphql rejects multi-operation documents without calling Linear" do
     query = """
     query Viewer { viewer { id } }
     query Teams { teams { nodes { id } } }
@@ -155,15 +157,112 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       DynamicTool.execute(
         "linear_graphql",
         %{"query" => query},
-        linear_client: fn forwarded_query, variables, opts ->
-          send(test_pid, {:linear_client_called, forwarded_query, variables, opts})
-          {:ok, %{"errors" => [%{"message" => "Must provide operation name if query contains multiple operations."}]}}
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for multi-operation documents")
         end
       )
 
-    assert_received {:linear_client_called, forwarded_query, %{}, []}
-    assert forwarded_query == String.trim(query)
     assert response["success"] == false
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` does not support multi-operation documents. Split into separate tool calls."
+             }
+           }
+  end
+
+  test "linear_graphql rejects multi-operation documents when given as a raw string" do
+    query = "query Foo { viewer { id } } mutation Bar { noop }"
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        query,
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for multi-operation documents")
+        end
+      )
+
+    assert response["success"] == false
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` does not support multi-operation documents. Split into separate tool calls."
+             }
+           }
+  end
+
+  test "linear_graphql allows single named operation" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_1"}}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
+  test "linear_graphql allows anonymous operations (shorthand query)" do
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "{ viewer { id } }"},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"viewer" => %{"id" => "usr_2"}}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
+  test "linear_graphql passes anonymous multi-operation to Linear (known regex limitation)" do
+    # Two anonymous ops are invalid GraphQL but bypass the named-op guard —
+    # the check only counts named operation declarations.
+    # Linear returns the error rather than the tool rejecting client-side.
+    query = "{ viewer { id } } { teams { nodes { id } } }"
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => query},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"errors" => [%{"message" => "Must provide operation name"}]}}
+        end
+      )
+
+    # Reaches Linear; graphql_response marks it failed because of the errors list.
+    assert response["success"] == false
+  end
+
+  test "linear_graphql does not false-positive on operation keywords in string literals" do
+    # A mutation whose hardcoded argument text contains "subscription" and "query"
+    # must not be rejected as a multi-operation document.
+    query = ~S"""
+    mutation CreateIssue {
+      issueCreate(input: {
+        title: "Fix subscription handler",
+        description: "Run query to verify"
+      }) { issue { id } }
+    }
+    """
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => query},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{"issueCreate" => %{"issue" => %{"id" => "issue-1"}}}}}
+        end
+      )
+
+    assert response["success"] == true
   end
 
   test "linear_graphql rejects blank raw query strings even when using the default client" do
@@ -467,7 +566,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "linear_graphql".),
-               "supportedTools" => ["clickup_api"]
+               "supportedTools" => ["clickup_api", "tracker_update_comment"]
              }
            }
   end
@@ -671,6 +770,149 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
                "message" => "ClickUp API tool execution failed.",
                "reason" => "redacted"
              }
+           }
+  end
+
+  test "tool_specs advertises tracker_update_comment alongside linear_graphql for linear tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    specs = DynamicTool.tool_specs()
+
+    # Assert — two tools: linear_graphql + tracker_update_comment
+    assert length(specs) == 2
+    assert Enum.any?(specs, &(&1["name"] == "tracker_update_comment"))
+    tracker_tool = Enum.find(specs, &(&1["name"] == "tracker_update_comment"))
+    assert %{"comment_id" => _, "body" => _} = tracker_tool["inputSchema"]["properties"]
+    assert tracker_tool["inputSchema"]["required"] == ["comment_id", "body"]
+  end
+
+  test "tool_specs advertises tracker_update_comment alongside clickup_api for clickup tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "clickup",
+      tracker_api_token: "ck_test",
+      tracker_list_id: "list-1",
+      tracker_project_slug: nil
+    )
+
+    # Act
+    specs = DynamicTool.tool_specs()
+
+    # Assert — two tools: clickup_api + tracker_update_comment
+    assert length(specs) == 2
+    assert Enum.any?(specs, &(&1["name"] == "tracker_update_comment"))
+  end
+
+  test "tracker_update_comment executes successfully and returns ok text" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "updated workpad"},
+        update_comment_fun: fn comment_id, body ->
+          assert comment_id == "comment-42"
+          assert body == "updated workpad"
+          :ok
+        end
+      )
+
+    # Assert
+    assert response["success"] == true
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"result" => "comment updated"}
+  end
+
+  test "tracker_update_comment returns failure when update_fun returns error" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "body"},
+        update_comment_fun: fn _comment_id, _body -> {:error, :comment_update_failed} end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "Failed to update comment.", "reason" => ":comment_update_failed"}}
+  end
+
+  test "tracker_update_comment rejects missing comment_id" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"body" => "body"},
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
+  end
+
+  test "tracker_update_comment rejects blank body" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "   "},
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
+  end
+
+  test "tracker_update_comment rejects non-map arguments" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        "not a map",
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
+  end
+
+  test "clickup_api rejects blank whitespace-only path" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET", "path" => "   "})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{"message" => "`clickup_api.path` is required and must be non-empty."}
            }
   end
 end
