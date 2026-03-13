@@ -166,6 +166,18 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
       assert {:error, {:clickup_api_status, 429}} = result
     end
 
+    test "create_comment returns unexpected_response when REST response has no id" do
+      # Arrange
+      clickup_workflow!()
+
+      # Act
+      result =
+        Adapter.create_comment("task-42", "hello", rest_fun: fn _method, _path, _body -> {:ok, %{"status" => "ok"}} end)
+
+      # Assert
+      assert {:error, {:unexpected_response, %{"status" => "ok"}}} = result
+    end
+
     test "update_comment returns ok on successful REST write" do
       # Arrange
       clickup_workflow!()

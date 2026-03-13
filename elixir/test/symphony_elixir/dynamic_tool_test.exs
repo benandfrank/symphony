@@ -787,4 +787,37 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert [%{"text" => text}] = response["contentItems"]
     assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
   end
+
+  test "tracker_update_comment rejects non-map arguments" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        "not a map",
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
+  end
+
+  test "clickup_api rejects blank whitespace-only path" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    # Act
+    response = DynamicTool.execute("clickup_api", %{"method" => "GET", "path" => "   "})
+
+    # Assert
+    assert response["success"] == false
+
+    assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
+             "error" => %{"message" => "`clickup_api.path` is required and must be non-empty."}
+           }
+  end
 end
