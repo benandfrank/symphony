@@ -148,7 +148,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_candidate_issues()
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
     assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issue_states_by_ids(["issue-1"])
-    assert :ok = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
+    assert {:ok, _comment_id} = SymphonyElixir.Tracker.create_comment("issue-1", "comment")
     assert :ok = SymphonyElixir.Tracker.update_comment("comment-1", "updated body")
     assert :ok = SymphonyElixir.Tracker.update_issue_state("issue-1", "Done")
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
@@ -156,7 +156,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
 
     Application.delete_env(:symphony_elixir, :memory_tracker_recipient)
-    assert :ok = Memory.create_comment("issue-1", "quiet")
+    assert {:ok, _comment_id} = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_comment("comment-1", "quiet update")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
 
@@ -216,11 +216,11 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     assert_receive {:fetch_issue_states_by_ids_called, ["issue-1"]}
 
-    assert :ok =
+    assert {:ok, "created-comment-id"} =
              Adapter.create_comment("issue-1", "hello",
                graphql_fun: fn query, variables ->
                  send(test_pid, {:graphql_called, query, variables})
-                 {:ok, %{"data" => %{"commentCreate" => %{"success" => true}}}}
+                 {:ok, %{"data" => %{"commentCreate" => %{"success" => true, "comment" => %{"id" => "created-comment-id"}}}}}
                end
              )
 

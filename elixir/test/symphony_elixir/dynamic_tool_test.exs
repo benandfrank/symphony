@@ -7,21 +7,23 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     # Arrange
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
 
-    # Act / Assert
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "query" => _,
-                   "variables" => _
-                 },
-                 "required" => ["query"],
-                 "type" => "object"
+    # Act
+    specs = DynamicTool.tool_specs()
+    linear_tool = Enum.find(specs, &(&1["name"] == "linear_graphql"))
+
+    # Assert
+    assert %{
+             "description" => description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "query" => _,
+                 "variables" => _
                },
-               "name" => "linear_graphql"
-             }
-           ] = DynamicTool.tool_specs()
+               "required" => ["query"],
+               "type" => "object"
+             },
+             "name" => "linear_graphql"
+           } = linear_tool
 
     assert description =~ "Linear"
   end
@@ -35,22 +37,24 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
       tracker_project_slug: nil
     )
 
-    # Act / Assert
-    assert [
-             %{
-               "description" => description,
-               "inputSchema" => %{
-                 "properties" => %{
-                   "body" => _,
-                   "method" => _,
-                   "path" => _
-                 },
-                 "required" => ["method", "path"],
-                 "type" => "object"
+    # Act
+    specs = DynamicTool.tool_specs()
+    clickup_tool = Enum.find(specs, &(&1["name"] == "clickup_api"))
+
+    # Assert
+    assert %{
+             "description" => description,
+             "inputSchema" => %{
+               "properties" => %{
+                 "body" => _,
+                 "method" => _,
+                 "path" => _
                },
-               "name" => "clickup_api"
-             }
-           ] = DynamicTool.tool_specs()
+               "required" => ["method", "path"],
+               "type" => "object"
+             },
+             "name" => "clickup_api"
+           } = clickup_tool
 
     assert description =~ "ClickUp"
   end
@@ -74,7 +78,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(response["output"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql"]
+               "supportedTools" => ["linear_graphql", "tracker_update_comment"]
              }
            }
 
@@ -467,7 +471,7 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(hd(response["contentItems"])["text"]) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "linear_graphql".),
-               "supportedTools" => ["clickup_api"]
+               "supportedTools" => ["clickup_api", "tracker_update_comment"]
              }
            }
   end
@@ -672,5 +676,115 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
                "reason" => "redacted"
              }
            }
+  end
+
+  test "tool_specs advertises tracker_update_comment alongside linear_graphql for linear tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    specs = DynamicTool.tool_specs()
+
+    # Assert — two tools: linear_graphql + tracker_update_comment
+    assert length(specs) == 2
+    assert Enum.any?(specs, &(&1["name"] == "tracker_update_comment"))
+    tracker_tool = Enum.find(specs, &(&1["name"] == "tracker_update_comment"))
+    assert %{"comment_id" => _, "body" => _} = tracker_tool["inputSchema"]["properties"]
+    assert tracker_tool["inputSchema"]["required"] == ["comment_id", "body"]
+  end
+
+  test "tool_specs advertises tracker_update_comment alongside clickup_api for clickup tracker" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "clickup",
+      tracker_api_token: "ck_test",
+      tracker_list_id: "list-1",
+      tracker_project_slug: nil
+    )
+
+    # Act
+    specs = DynamicTool.tool_specs()
+
+    # Assert — two tools: clickup_api + tracker_update_comment
+    assert length(specs) == 2
+    assert Enum.any?(specs, &(&1["name"] == "tracker_update_comment"))
+  end
+
+  test "tracker_update_comment executes successfully and returns ok text" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "updated workpad"},
+        update_comment_fun: fn comment_id, body ->
+          assert comment_id == "comment-42"
+          assert body == "updated workpad"
+          :ok
+        end
+      )
+
+    # Assert
+    assert response["success"] == true
+
+    assert [%{"type" => "inputText", "text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"result" => "comment updated"}
+  end
+
+  test "tracker_update_comment returns failure when update_fun returns error" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "body"},
+        update_comment_fun: fn _comment_id, _body -> {:error, :comment_update_failed} end
+      )
+
+    # Assert
+    assert response["success"] == false
+
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "Failed to update comment.", "reason" => ":comment_update_failed"}}
+  end
+
+  test "tracker_update_comment rejects missing comment_id" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"body" => "body"},
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
+  end
+
+  test "tracker_update_comment rejects blank body" do
+    # Arrange
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
+
+    # Act
+    response =
+      DynamicTool.execute(
+        "tracker_update_comment",
+        %{"comment_id" => "comment-42", "body" => "   "},
+        update_comment_fun: fn _comment_id, _body -> flunk("should not be called") end
+      )
+
+    # Assert
+    assert response["success"] == false
+    assert [%{"text" => text}] = response["contentItems"]
+    assert Jason.decode!(text) == %{"error" => %{"message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."}}
   end
 end

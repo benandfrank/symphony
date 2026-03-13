@@ -3,11 +3,12 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   Executes client-side tool calls requested by Codex app-server turns.
   """
 
-  alias SymphonyElixir.{ClickUp.Client, Config}
+  alias SymphonyElixir.{ClickUp.Client, Config, Tracker}
   alias SymphonyElixir.Linear.Client, as: LinearClient
 
   @linear_graphql_tool "linear_graphql"
   @clickup_api_tool "clickup_api"
+  @tracker_update_comment_tool "tracker_update_comment"
 
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
@@ -30,6 +31,27 @@ defmodule SymphonyElixir.Codex.DynamicTool do
         "type" => ["object", "null"],
         "description" => "Optional GraphQL variables object.",
         "additionalProperties" => true
+      }
+    }
+  }
+
+  @tracker_update_comment_description """
+  Update an existing tracker comment body by comment ID.
+  Use this to edit the persistent workpad comment in-place without needing tracker-specific tools.
+  """
+
+  @tracker_update_comment_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["comment_id", "body"],
+    "properties" => %{
+      "comment_id" => %{
+        "type" => "string",
+        "description" => "The ID of the comment to update."
+      },
+      "body" => %{
+        "type" => "string",
+        "description" => "The new comment body (Markdown)."
       }
     }
   }
@@ -78,6 +100,9 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       {"clickup", @clickup_api_tool} ->
         execute_clickup_api(arguments, opts)
 
+      {tracker_kind, @tracker_update_comment_tool} when tracker_kind in ["linear", "clickup"] ->
+        execute_tracker_update_comment(arguments, opts)
+
       _other ->
         failure_response(%{
           "error" => %{
@@ -97,6 +122,11 @@ defmodule SymphonyElixir.Codex.DynamicTool do
             "name" => @linear_graphql_tool,
             "description" => @linear_graphql_description,
             "inputSchema" => @linear_graphql_input_schema
+          },
+          %{
+            "name" => @tracker_update_comment_tool,
+            "description" => @tracker_update_comment_description,
+            "inputSchema" => @tracker_update_comment_input_schema
           }
         ]
 
@@ -106,6 +136,11 @@ defmodule SymphonyElixir.Codex.DynamicTool do
             "name" => @clickup_api_tool,
             "description" => @clickup_api_description,
             "inputSchema" => @clickup_api_input_schema
+          },
+          %{
+            "name" => @tracker_update_comment_tool,
+            "description" => @tracker_update_comment_description,
+            "inputSchema" => @tracker_update_comment_input_schema
           }
         ]
 
@@ -138,6 +173,51 @@ defmodule SymphonyElixir.Codex.DynamicTool do
         failure_response(clickup_error_payload(reason))
     end
   end
+
+  defp execute_tracker_update_comment(arguments, opts) do
+    update_fun = Keyword.get(opts, :update_comment_fun, &Tracker.update_comment/2)
+
+    with {:ok, comment_id, body} <- normalize_update_comment_arguments(arguments),
+         :ok <- update_fun.(comment_id, body) do
+      success_response(encode_payload(%{"result" => "comment updated"}))
+    else
+      {:error, :invalid_update_comment_arguments} ->
+        failure_response(%{
+          "error" => %{
+            "message" => "`tracker_update_comment` requires non-empty `comment_id` and `body` strings."
+          }
+        })
+
+      {:error, reason} ->
+        failure_response(%{
+          "error" => %{
+            "message" => "Failed to update comment.",
+            "reason" => inspect(reason)
+          }
+        })
+    end
+  end
+
+  defp normalize_update_comment_arguments(arguments) when is_map(arguments) do
+    comment_id = Map.get(arguments, "comment_id") || Map.get(arguments, :comment_id)
+    body = Map.get(arguments, "body") || Map.get(arguments, :body)
+    parse_nonempty_comment_fields(comment_id, body)
+  end
+
+  defp normalize_update_comment_arguments(_arguments), do: {:error, :invalid_update_comment_arguments}
+
+  defp parse_nonempty_comment_fields(comment_id, body) when is_binary(comment_id) and is_binary(body) do
+    trimmed_c = String.trim(comment_id)
+    trimmed_b = String.trim(body)
+
+    if trimmed_c != "" and trimmed_b != "" do
+      {:ok, trimmed_c, trimmed_b}
+    else
+      {:error, :invalid_update_comment_arguments}
+    end
+  end
+
+  defp parse_nonempty_comment_fields(_comment_id, _body), do: {:error, :invalid_update_comment_arguments}
 
   defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
     case String.trim(arguments) do

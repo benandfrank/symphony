@@ -126,7 +126,7 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
       assert {:ok, ["task-42"]} = result
     end
 
-    test "create_comment returns ok on successful REST write" do
+    test "create_comment returns {:ok, comment_id} on successful REST write" do
       # Arrange
       clickup_workflow!()
 
@@ -140,7 +140,7 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
         )
 
       # Assert
-      assert :ok = result
+      assert {:ok, "comment-1"} = result
     end
 
     test "create_comment returns missing token error when token is absent" do

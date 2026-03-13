@@ -39,10 +39,10 @@ defmodule SymphonyElixir.Tracker.Memory do
   end
 
   @impl true
-  @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
+  @spec create_comment(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def create_comment(issue_id, body) do
     send_event({:memory_tracker_comment, issue_id, body})
-    :ok
+    {:ok, "mem-#{:erlang.unique_integer([:positive, :monotonic])}"}
   end
 
   @impl true
