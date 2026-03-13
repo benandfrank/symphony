@@ -1,4 +1,16 @@
 ---
+# ClickUp example (uncomment and remove the Linear block below to switch):
+# tracker:
+#   kind: clickup
+#   list_id: "900200100123"
+#   api_key: $CLICKUP_API_KEY
+#   # Optional: route only issues assigned to this worker identity (ClickUp numeric user ID).
+#   # assignee: "12345678"
+#   active_states:
+#     - in progress   # Replace with your actual ClickUp space status names
+#   terminal_states:
+#     - complete
+#     - closed
 tracker:
   kind: linear
   project_slug: "symphony-0c79b11b75ea"

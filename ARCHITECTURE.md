@@ -89,8 +89,9 @@ State is purely in-memory; recovery after restart is driven by re-polling the tr
 
 `Tracker` is the adapter boundary: a behaviour with six callbacks
 (`fetch_candidate_issues/0`, `fetch_issues_by_states/1`, `fetch_issue_states_by_ids/1`,
-`create_comment/2`, `update_comment/2`, `update_issue_state/2`). The orchestrator and agent runner call only the
-`Tracker` module; they have no knowledge of which backend is active.
+`create_comment/2` (returns `{:ok, comment_id}`), `update_comment/2`, `update_issue_state/2`).
+The orchestrator and agent runner call only the `Tracker` module; they have no knowledge of
+which backend is active.
 
 Current adapters:
 - `Linear.Adapter` + `Linear.Client` — GraphQL-over-HTTP client for Linear.
@@ -111,10 +112,14 @@ same struct shape, including `assigned_to_worker` for tracker-side worker routin
 filtering.
 
 The optional dynamic tool (`Codex.DynamicTool`) is tracker-aware: it advertises `linear_graphql`
-when `tracker.kind == "linear"` and `clickup_api` when `tracker.kind == "clickup"`. Each tool
-gives the agent direct API access using Symphony's configured auth. The `clickup_api` tool
-enforces guardrails: method allowlist (`GET`, `POST`, `PUT`), path prefix allowlist
-(`/task/`, `/list/`, `/team/`), payload size limits, and error redaction.
+when `tracker.kind == "linear"` and `clickup_api` when `tracker.kind == "clickup"`. The
+`tracker_update_comment` tool is advertised for both tracker kinds and delegates to
+`Tracker.update_comment/2`. Each tool gives the agent direct API access using Symphony's
+configured auth. The `clickup_api` tool enforces guardrails: method allowlist
+(`GET`, `POST`, `PUT`), path prefix allowlist (`/task/`, `/list/`, `/team/`), payload size
+limits, and error redaction. Comment updates must go through `tracker_update_comment` because
+the ClickUp update endpoint (`PUT /comment/{id}`) uses the `/comment/` prefix, which is
+outside the `clickup_api` allowlist.
 
 ### 6. Observability Layer — `SymphonyElixir.StatusDashboard`, HTTP server, Logger
 
