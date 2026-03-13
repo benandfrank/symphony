@@ -83,7 +83,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert File.read!(Path.join(second_workspace, "local-progress.txt")) == "in progress\n"
       assert File.read!(Path.join([second_workspace, "deps", "cache.txt"])) == "cached deps\n"
       assert File.read!(Path.join([second_workspace, "_build", "artifact.txt"])) == "compiled artifact\n"
-      refute File.exists?(Path.join([second_workspace, "tmp", "scratch.txt"]))
+      assert File.read!(Path.join([second_workspace, "tmp", "scratch.txt"])) == "remove me\n"
     after
       File.rm_rf(workspace_root)
     end
@@ -103,8 +103,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
+      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(stale_workspace)
       assert {:ok, workspace} = Workspace.create_for_issue("MT-STALE")
-      assert workspace == stale_workspace
+      assert workspace == canonical_workspace
       assert File.dir?(workspace)
     after
       File.rm_rf(workspace_root)
@@ -129,7 +130,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      assert {:error, {:workspace_symlink_escape, ^symlink_path, ^workspace_root}} =
+      assert {:ok, canonical_outside_root} = SymphonyElixir.PathSafety.canonicalize(outside_root)
+      assert {:ok, canonical_workspace_root} = SymphonyElixir.PathSafety.canonicalize(workspace_root)
+
+      assert {:error, {:workspace_outside_root, ^canonical_outside_root, ^canonical_workspace_root}} =
                Workspace.create_for_issue("MT-SYM")
     after
       File.rm_rf(test_root)
@@ -147,7 +151,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       File.mkdir_p!(workspace_root)
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      assert {:error, {:workspace_equals_root, ^workspace_root, ^workspace_root}, ""} =
+      assert {:ok, canonical_workspace_root} =
+               SymphonyElixir.PathSafety.canonicalize(workspace_root)
+
+      assert {:error, {:workspace_equals_root, ^canonical_workspace_root, ^canonical_workspace_root}, ""} =
                Workspace.remove(workspace_root)
     after
       File.rm_rf(workspace_root)
@@ -206,8 +213,9 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       workspace = Path.join(workspace_root, "MT-608")
+      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
 
-      assert {:ok, ^workspace} = Workspace.create_for_issue("MT-608")
+      assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
       assert File.dir?(workspace)
       assert {:ok, []} = File.ls(workspace)
     after

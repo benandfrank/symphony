@@ -1251,6 +1251,7 @@ defmodule SymphonyElixir.CoreTest do
       }
 
       assert {:ok, _result} = AppServer.run(workspace, "Fix workspace start args", issue)
+      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
 
       trace = File.read!(trace_file)
       lines = String.split(trace, "\n", trim: true)
@@ -1278,7 +1279,7 @@ defmodule SymphonyElixir.CoreTest do
                    payload["method"] == "thread/start" &&
                      get_in(payload, ["params", "approvalPolicy"]) == expected_approval_policy &&
                      get_in(payload, ["params", "sandbox"]) == "workspace-write" &&
-                     get_in(payload, ["params", "cwd"]) == Path.expand(workspace)
+                     get_in(payload, ["params", "cwd"]) == canonical_workspace
                  end)
                else
                  false
@@ -1287,7 +1288,7 @@ defmodule SymphonyElixir.CoreTest do
 
       expected_turn_sandbox_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => [Path.expand(workspace)],
+        "writableRoots" => [canonical_workspace],
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => false,
         "excludeTmpdirEnvVar" => false,
@@ -1309,7 +1310,7 @@ defmodule SymphonyElixir.CoreTest do
                    }
 
                    payload["method"] == "turn/start" &&
-                     get_in(payload, ["params", "cwd"]) == Path.expand(workspace) &&
+                     get_in(payload, ["params", "cwd"]) == canonical_workspace &&
                      get_in(payload, ["params", "approvalPolicy"]) == expected_approval_policy &&
                      get_in(payload, ["params", "sandboxPolicy"]) == expected_turn_sandbox_policy
                  end)

@@ -79,6 +79,20 @@ defmodule SymphonyElixir.Config do
                                  root: [type: {:or, [:string, nil]}, default: @default_workspace_root]
                                ]
                              ],
+                             worker: [
+                               type: :map,
+                               default: %{},
+                               keys: [
+                                 ssh_hosts: [
+                                   type: {:list, :string},
+                                   default: []
+                                 ],
+                                 max_concurrent_agents_per_host: [
+                                   type: {:or, [:pos_integer, nil]},
+                                   default: nil
+                                 ]
+                               ]
+                             ],
                              agent: [
                                type: :map,
                                default: %{},
@@ -262,6 +276,16 @@ defmodule SymphonyElixir.Config do
     |> resolve_path_value(@default_workspace_root)
   end
 
+  @spec ssh_worker_hosts() :: [String.t()]
+  def ssh_worker_hosts do
+    get_in(validated_workflow_options(), [:worker, :ssh_hosts]) || []
+  end
+
+  @spec worker_max_concurrent_agents_per_host() :: pos_integer() | nil
+  def worker_max_concurrent_agents_per_host do
+    get_in(validated_workflow_options(), [:worker, :max_concurrent_agents_per_host])
+  end
+
   @spec workspace_hooks() :: workspace_hooks()
   def workspace_hooks do
     hooks = get_in(validated_workflow_options(), [:hooks])
@@ -403,11 +427,12 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  @spec codex_runtime_settings(Path.t() | nil) :: {:ok, codex_runtime_settings()} | {:error, term()}
-  def codex_runtime_settings(workspace \\ nil) do
+  @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
+          {:ok, codex_runtime_settings()} | {:error, term()}
+  def codex_runtime_settings(workspace \\ nil, opts \\ []) do
     with {:ok, approval_policy} <- resolve_codex_approval_policy(),
          {:ok, thread_sandbox} <- resolve_codex_thread_sandbox(),
-         {:ok, turn_sandbox_policy} <- resolve_codex_turn_sandbox_policy(workspace) do
+         {:ok, turn_sandbox_policy} <- resolve_codex_turn_sandbox_policy(workspace, opts) do
       {:ok,
        %{
          approval_policy: approval_policy,
@@ -481,6 +506,7 @@ defmodule SymphonyElixir.Config do
       tracker: extract_tracker_options(section_map(config, "tracker")),
       polling: extract_polling_options(section_map(config, "polling")),
       workspace: extract_workspace_options(section_map(config, "workspace")),
+      worker: extract_worker_options(section_map(config, "worker")),
       agent: extract_agent_options(section_map(config, "agent")),
       codex: extract_codex_options(section_map(config, "codex")),
       hooks: extract_hooks_options(section_map(config, "hooks")),
@@ -509,6 +535,15 @@ defmodule SymphonyElixir.Config do
   defp extract_workspace_options(section) do
     %{}
     |> put_if_present(:root, binary_value(Map.get(section, "root")))
+  end
+
+  defp extract_worker_options(section) do
+    %{}
+    |> put_if_present(:ssh_hosts, csv_value(Map.get(section, "ssh_hosts")))
+    |> put_if_present(
+      :max_concurrent_agents_per_host,
+      positive_integer_value(Map.get(section, "max_concurrent_agents_per_host"))
+    )
   end
 
   defp extract_agent_options(section) do
@@ -774,13 +809,13 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp resolve_codex_turn_sandbox_policy(workspace) do
+  defp resolve_codex_turn_sandbox_policy(workspace, opts \\ []) do
     case fetch_value([["codex", "turn_sandbox_policy"]], :missing) do
       :missing ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
+        {:ok, default_codex_turn_sandbox_policy(workspace, opts)}
 
       nil ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
+        {:ok, default_codex_turn_sandbox_policy(workspace, opts)}
 
       value when is_map(value) ->
         {:ok, value}
@@ -790,12 +825,19 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp default_codex_turn_sandbox_policy(workspace) do
+  defp default_codex_turn_sandbox_policy(workspace, opts \\ []) do
+    remote = Keyword.get(opts, :remote, false)
+
     writable_root =
-      if is_binary(workspace) and String.trim(workspace) != "" do
-        Path.expand(workspace)
-      else
-        Path.expand(workspace_root())
+      cond do
+        remote and is_binary(workspace) and String.trim(workspace) != "" ->
+          workspace
+
+        is_binary(workspace) and String.trim(workspace) != "" ->
+          Path.expand(workspace)
+
+        true ->
+          Path.expand(workspace_root())
       end
 
     %{
