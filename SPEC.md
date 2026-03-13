@@ -480,6 +480,11 @@ Template input variables:
 - `attempt` (integer or null)
   - `null`/absent on first attempt.
   - Integer on retry or continuation run.
+- `workpad_comment_id` (string or null)
+  - The ID of the persistent workpad comment created on the tracker before the first Codex turn.
+  - `null` when the issue has no tracker ID or when comment creation fails (graceful degradation).
+  - Agents should use this ID with the `tracker_update_comment` tool to update the workpad
+    comment in-place rather than creating new comments.
 
 Fallback prompt behavior:
 
@@ -2138,7 +2143,7 @@ Use the same validation profiles as Section 17:
 - Hook timeout config (`hooks.timeout_ms`, default `60000`)
 - Coding-agent app-server subprocess client with JSON line protocol
 - Codex launch command config (`codex.command`, default `codex app-server`)
-- Strict prompt rendering with `issue` and `attempt` variables
+- Strict prompt rendering with `issue`, `attempt`, and `workpad_comment_id` variables
 - Exponential retry queue with continuation retries after normal exit
 - Configurable retry backoff cap (`agent.max_retry_backoff_ms`, default 5m)
 - Reconciliation that stops runs on terminal/non-active tracker states

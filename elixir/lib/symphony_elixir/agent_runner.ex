@@ -7,6 +7,8 @@ defmodule SymphonyElixir.AgentRunner do
   alias SymphonyElixir.Codex.AppServer
   alias SymphonyElixir.{Config, Issue, PromptBuilder, Tracker, Workspace}
 
+  @initial_workpad_body "## Workpad\n\n_Session starting..._"
+
   @type worker_host :: String.t() | nil
 
   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
@@ -51,7 +53,8 @@ defmodule SymphonyElixir.AgentRunner do
 
         try do
           with :ok <- Workspace.run_before_run_hook(workspace, issue, worker_host) do
-            run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host)
+            comment_id = create_workpad_comment(issue, opts)
+            run_codex_turns(workspace, issue, codex_update_recipient, Keyword.put(opts, :workpad_comment_id, comment_id), worker_host)
           end
         after
           Workspace.run_after_run_hook(workspace, issue, worker_host)
@@ -159,6 +162,22 @@ defmodule SymphonyElixir.AgentRunner do
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     """
   end
+
+  defp create_workpad_comment(%Issue{id: issue_id} = issue, opts) when is_binary(issue_id) do
+    create_fun = Keyword.get(opts, :create_comment_fun, &Tracker.create_comment/2)
+
+    case create_fun.(issue_id, @initial_workpad_body) do
+      {:ok, comment_id} ->
+        Logger.info("Created workpad comment for #{issue_context(issue)} comment_id=#{comment_id}")
+        comment_id
+
+      {:error, reason} ->
+        Logger.warning("Failed to create workpad comment for #{issue_context(issue)}: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp create_workpad_comment(_issue, _opts), do: nil
 
   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
