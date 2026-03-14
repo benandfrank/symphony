@@ -17,8 +17,8 @@ defmodule SymphonyElixir.ClickUp.HTTP do
     the sequential pagination loop in `ClickUp.Client` and any `Task.async_stream` that wraps
     individual task fetches.
 
-  Both timeouts are well below the `Task.async_stream` cap of `2 × connect_timeout_ms` so that
-  a hung request is cut by Req before the beam scheduler would notice the stuck task.
+  Both timeouts are well below the `Task.async_stream` timeout configured in `ClickUp.Client` so
+  that a hung request is cut by Req before the BEAM cancels the task wrapping the request.
   """
 
   @connect_timeout_ms 30_000

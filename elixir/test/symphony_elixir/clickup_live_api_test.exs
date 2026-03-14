@@ -17,10 +17,13 @@ defmodule SymphonyElixir.ClickUp.LiveApiTest do
   @moduletag :live_clickup
   @moduletag timeout: 60_000
 
-  @live_skip_reason if System.get_env("SYMPHONY_RUN_LIVE_CLICKUP") != "1",
-                      do:
-                        "set SYMPHONY_RUN_LIVE_CLICKUP=1 and " <>
-                          "CLICKUP_API_KEY / CLICKUP_TEST_LIST_ID / CLICKUP_TEST_TASK_ID to run"
+  @live_skip_reason if System.get_env("SYMPHONY_RUN_LIVE_CLICKUP") != "1" or
+                         System.get_env("CLICKUP_API_KEY") in [nil, ""] or
+                         System.get_env("CLICKUP_TEST_LIST_ID") in [nil, ""] or
+                         System.get_env("CLICKUP_TEST_TASK_ID") in [nil, ""],
+                       do:
+                         "set SYMPHONY_RUN_LIVE_CLICKUP=1 and " <>
+                           "CLICKUP_API_KEY / CLICKUP_TEST_LIST_ID / CLICKUP_TEST_TASK_ID to run"
 
   alias SymphonyElixir.ClickUp.Adapter
   alias SymphonyElixir.Issue
