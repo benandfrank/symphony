@@ -86,6 +86,9 @@ If the contract is ambiguous, do not improvise a research loop.
 2. Run the evaluation command with no experiment edits.
 3. Record the result in the ledger as `baseline`.
 4. Summarize the baseline in the workpad.
+5. If the baseline run crashes or produces no usable metric, mark it as `crash` in the ledger,
+   note the failure in the workpad, and stop using the experiment skill. Return to the normal
+   delivery workflow — the evaluation harness must be fixed before experimentation can begin.
 
 ### Step 3: Plan a single hypothesis
 
@@ -143,6 +146,7 @@ Use a compact structure like:
 
 ```md
 ### Experiment Status
+- Direction: lower is better
 - Best metric: 0.9974 (commit abc1234)
 - Latest attempt: 0.9981 (`discard`)
 - Evaluation: `uv run train.py > run.log 2>&1`
@@ -158,4 +162,6 @@ Exit experiment mode when any of these become true:
 - the issue requires normal delivery work instead of empirical search,
 - the environment or required secrets are missing,
 - the ticket reaches a workflow state that requires handoff or merge flow,
+- there has been no improvement in the last three consecutive attempts (plateau signal),
+- metric variance between recent attempts is smaller than the measurement noise,
 - diminishing returns suggest the next work should be human-directed.

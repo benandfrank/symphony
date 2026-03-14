@@ -1,4 +1,5 @@
 ### Experiment Status
+- Direction: lower is better
 - Best metric: 0.996800 (commit `bcd2345`)
 - Latest attempt: 1.002100 (`discard`)
 - Evaluation: `uv run train.py > run.log 2>&1`
