@@ -1,0 +1,5 @@
+commit	metric	memory_gb	status	description
+abc1234	0.997900	44.0	baseline	baseline
+bcd2345	0.996800	44.2	keep	increase learning rate slightly
+cde3456	1.002100	44.1	discard	switch activation function
+def4567	0.000000	0.0	crash	double model width caused OOM

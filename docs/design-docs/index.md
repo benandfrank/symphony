@@ -26,4 +26,5 @@ Keep them short. A useful design doc answers:
 
 | Doc | Summary |
 |-----|---------|
+| [experiment-workflow.md](experiment-workflow.md) | Add an optional benchmark-driven experiment workflow pattern via policy/skills, not core orchestration |
 | [tracker-abstraction.md](tracker-abstraction.md) | Close Linear leaks from the abstraction layer; add ClickUp as a first-class tracker backend |
