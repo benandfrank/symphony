@@ -98,6 +98,7 @@ The agent should be able to talk to the configured tracker, either via a configu
 - Start every task by opening the tracking workpad comment and bringing it up to date before doing new implementation work.
 - Spend extra effort up front on planning and verification design before implementation.
 - Reproduce first: always confirm the current behavior/issue signal before changing code so the fix target is explicit.
+- For experiment/optimization tickets, require an explicit evaluation command and success metric before starting the loop. If either is missing, treat the ticket as not ready for experiment mode.
 - Follow the development cycle: Think → Spec → 🔴 Red → Implement → 🟢 Green → 🔵 Refactor → Deliver.
   - **🔴 Red before Implement**: write failing tests that capture the expected behavior before writing production code. Confirm `make all` fails on the new tests and all prior tests still pass.
   - **🟢 Green gate**: `make all` must pass (format, lint, coverage, dialyzer, specs) before moving to Deliver.
@@ -122,10 +123,30 @@ The agent should be able to talk to the configured tracker, either via a configu
 
 - `linear`: interact with Linear (when tracker kind is `linear`).
 - `clickup`: interact with ClickUp (when tracker kind is `clickup`).
+- `experiment`: run a benchmark-driven optimization loop for tickets that explicitly call for empirical tuning with an objective evaluation command.
 - `commit`: produce clean, logical commits during implementation.
 - `push`: keep remote branch current and publish updates.
 - `pull`: keep branch updated with latest `origin/main` before handoff.
 - `land`: when ticket reaches `Merging`, explicitly open and follow `.codex/skills/land/SKILL.md`, which includes the `land` loop.
+
+## Optional pattern: experiment / optimization tickets
+
+Use the `experiment` skill only when the ticket is explicitly an optimization or research task with:
+
+- a fixed evaluation command or harness,
+- a clear success direction (`lower is better` or `higher is better`),
+- a baseline that can be measured before edits,
+- a scope narrow enough for repeated autonomous iteration.
+
+When this pattern is in use:
+
+1. Run a **baseline-first** pass before making code changes.
+2. Record each experiment in a workspace ledger such as `results.tsv` or `experiments/results.tsv`.
+3. Keep the workpad comment concise: summarize the current best result, latest attempt, and active hypothesis.
+4. Prefer constrained edit scope when the ticket defines one (for example a single file, module, or directory).
+5. Stop using the experiment loop if the work stops being objectively measurable and fall back to the normal delivery workflow.
+
+Do **not** use this pattern for ordinary product, bug-fix, refactor, or integration tickets whose success depends mainly on semantic correctness or human judgment.
 
 ## Status map
 
