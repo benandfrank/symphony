@@ -1,0 +1,14 @@
+{
+  "id": "task-abc123",
+  "custom_id": "PROJ-42",
+  "name": "Fix login bug",
+  "description": "Users cannot log in on Safari 16+",
+  "status": { "status": "in progress", "color": "#4194f6", "type": "custom" },
+  "priority": { "id": "2", "priority": "high", "color": "#ffcc00" },
+  "assignees": [{ "id": 12345, "username": "jdoe", "email": "jdoe@example.com" }],
+  "tags": [{ "name": "Bug" }, { "name": "Frontend" }],
+  "url": "https://app.clickup.com/t/task-abc123",
+  "date_created": "1677000000000",
+  "date_updated": "1677100000000",
+  "dependencies": []
+}

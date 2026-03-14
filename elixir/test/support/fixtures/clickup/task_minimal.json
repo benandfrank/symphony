@@ -1,0 +1,7 @@
+{
+  "id": "task-min",
+  "name": "Minimal task",
+  "status": { "status": "open" },
+  "tags": [],
+  "dependencies": []
+}

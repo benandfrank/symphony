@@ -1369,4 +1369,119 @@ defmodule SymphonyElixir.ClickUp.ClientTest do
       assert {:error, {:clickup_dependency_fetch_exit, _reason}} = result
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Fixture snapshot tests
+  #
+  # The problem: unit tests above use hand-crafted mock responses. If the real
+  # ClickUp API changes field names, types, or adds required fields, those
+  # mocks keep passing while normalize_task/1 silently produces wrong Issues.
+  #
+  # The solution: fixture JSON files in test/support/fixtures/clickup/ mirror
+  # the shapes documented in docs/references/clickup-api.md. Tests here run
+  # normalize_task/1 against those realistic shapes and assert every mapping
+  # is correct — so fixture update catches drift before it reaches production.
+  # ---------------------------------------------------------------------------
+
+  describe "normalize_task/1 against real ClickUp API response shapes" do
+    test "maps all documented fields from a full task response" do
+      # Arrange
+      task = load_clickup_fixture("task_full.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert — every normalised field is verified against the raw fixture value
+      assert %Issue{} = issue
+      assert issue.id == "task-abc123"
+      assert issue.identifier == "PROJ-42"
+      assert issue.title == "Fix login bug"
+      assert issue.description == "Users cannot log in on Safari 16+"
+      assert issue.state == "in progress"
+      assert issue.priority == 2
+      assert issue.assignee_id == "12345"
+      assert issue.labels == ["bug", "frontend"]
+      assert issue.url == "https://app.clickup.com/t/task-abc123"
+      assert issue.branch_name == nil
+      assert issue.blocked_by == []
+      assert issue.assigned_to_worker == true
+      assert %DateTime{} = issue.created_at
+      assert %DateTime{} = issue.updated_at
+    end
+
+    test "falls back to id as identifier when custom_id is absent" do
+      # Arrange
+      task = load_clickup_fixture("task_minimal.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert issue.id == "task-min"
+      assert issue.identifier == "task-min"
+    end
+
+    test "handles absent optional fields without crashing" do
+      # Arrange
+      task = load_clickup_fixture("task_minimal.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert is_nil(issue.priority)
+      assert is_nil(issue.assignee_id)
+      assert is_nil(issue.description)
+      assert is_nil(issue.url)
+      assert is_nil(issue.created_at)
+      assert is_nil(issue.updated_at)
+      assert issue.labels == []
+      assert issue.blocked_by == []
+    end
+
+    test "extracts only type-0 (waiting-on) dependencies as blocked_by, ignoring type-1 (blocking)" do
+      # Arrange — fixture has 2 type-0 (blocked by) and 1 type-1 (blocking others)
+      task = load_clickup_fixture("task_with_dependencies.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert — only the two type-0 entries become blockers; type-1 is discarded
+      assert length(issue.blocked_by) == 2
+      blocker_ids = Enum.map(issue.blocked_by, & &1.id)
+      assert "task-blocker-1" in blocker_ids
+      assert "task-blocker-2" in blocker_ids
+    end
+
+    test "normalises tag names to lowercase regardless of original casing" do
+      # Arrange — fixture has "Bug" and "Frontend" (mixed-case)
+      task = load_clickup_fixture("task_full.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert "bug" in issue.labels
+      assert "frontend" in issue.labels
+      refute "Bug" in issue.labels
+      refute "Frontend" in issue.labels
+    end
+
+    test "casts integer assignee id to string matching SPEC §4.1.1" do
+      # Arrange — ClickUp assignees[].id is an integer; Issue.assignee_id is a string
+      task = load_clickup_fixture("task_full.json")
+
+      # Act
+      issue = Client.normalize_task(task)
+
+      # Assert
+      assert is_binary(issue.assignee_id)
+      assert issue.assignee_id == "12345"
+    end
+  end
+
+  defp load_clickup_fixture(filename) do
+    path = Path.join([__DIR__, "..", "support", "fixtures", "clickup", filename])
+    path |> File.read!() |> Jason.decode!()
+  end
 end
