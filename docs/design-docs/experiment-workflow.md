@@ -1,7 +1,8 @@
 # Experiment Workflow — Design Decision
 
 **Status:** Accepted  
-**Date:** 2026-03-11
+**Proposed:** 2026-03-11  
+**Accepted:** 2026-03-14
 
 ---
 
@@ -202,10 +203,13 @@ single issue branch.
 
 ## Follow-on guidance
 
-If this proposal is implemented, the preferred rollout order is:
+The rollout order followed so far has been:
 
 1. document the workflow pattern,
-2. add an experiment skill and template guidance,
+2. add an experiment skill and template guidance.
+
+The remaining preferred order is:
+
 3. validate it on one benchmark-driven repo,
 4. only then consider any spec or orchestrator extensions.
 

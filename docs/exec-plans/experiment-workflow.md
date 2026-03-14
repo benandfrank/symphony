@@ -30,8 +30,14 @@ The merged implementation now includes:
 
 ### Remaining work
 
-The core policy-layer pattern is in place. The only planned work still open from this execution plan
-is the real-world pilot to validate:
+The core policy-layer pattern is in place. The merged skill and examples already include the
+post-review hardening from PR #7:
+
+- explicit baseline-failure handling,
+- concrete plateau / measurement-noise stopping heuristics,
+- success direction in the workpad template and example.
+
+The only planned work still open from this execution plan is the real-world pilot to validate:
 
 - whether continuation turns are sufficient in practice,
 - whether the ledger format is actually convenient during long runs,
@@ -180,12 +186,12 @@ Choose one convention per repo and document it in the workflow/skill.
 
 ## Validation checklist
 
-- [ ] Review the skill and workflow text against `WORKFLOW.md` conventions.
+- [x] Review the skill and workflow text against `WORKFLOW.md` conventions.
 - [ ] Confirm the proposed loop is achievable with current `agent.max_turns` and continuation
       semantics.
-- [ ] Confirm no `SPEC.md` changes are needed for the MVP.
-- [ ] Validate the ledger format is agent-friendly and diff-friendly.
-- [ ] Validate workpad summaries stay concise while the detailed ledger remains in the workspace.
+- [x] Confirm no `SPEC.md` changes are needed for the MVP.
+- [x] Validate the ledger format is agent-friendly and diff-friendly.
+- [x] Validate workpad summaries stay concise while the detailed ledger remains in the workspace.
 
 ---
 
