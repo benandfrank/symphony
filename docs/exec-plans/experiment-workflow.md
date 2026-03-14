@@ -1,8 +1,42 @@
 # Execution Plan: Experiment Workflow Pattern
 
 **Design doc:** [`docs/design-docs/experiment-workflow.md`](../design-docs/experiment-workflow.md)  
-**Status:** Proposed  
+**Status:** In Progress  
 **Cycle:** Think → Spec → 🔴 Red → Implement → 🟢 Green → 🔵 Refactor → Deliver
+
+---
+
+## Implementation status review (2026-03-13)
+
+### Progress snapshot
+
+- **Phase 1 — Document the pattern:** Complete and merged.
+- **Phase 2 — Add the experiment skill:** Complete and merged.
+- **Phase 3 — Add workflow guidance:** Complete and merged.
+- **Examples / scaffolding:** Complete and merged.
+- **Phase 4 — Pilot on a real optimization ticket:** Not started.
+
+### What landed
+
+The merged implementation now includes:
+
+- `docs/design-docs/experiment-workflow.md`
+- `docs/exec-plans/experiment-workflow.md`
+- `.codex/skills/experiment/SKILL.md`
+- `elixir/WORKFLOW.md` experiment-ticket guidance
+- `docs/examples/README.md`
+- `docs/examples/experiment-results.tsv`
+- `docs/examples/experiment-workpad-summary.md`
+
+### Remaining work
+
+The core policy-layer pattern is in place. The only planned work still open from this execution plan
+is the real-world pilot to validate:
+
+- whether continuation turns are sufficient in practice,
+- whether the ledger format is actually convenient during long runs,
+- whether the workpad summary stays readable across many attempts,
+- whether a future orchestrator seam is justified.
 
 ---
 
@@ -127,20 +161,20 @@ Choose one convention per repo and document it in the workflow/skill.
 
 ### Functional
 
-- [ ] A documented experiment workflow exists in repo docs.
-- [ ] A dedicated experiment skill exists and is usable by the agent.
-- [ ] The skill requires a baseline-first run.
-- [ ] The skill defines a standard experiment ledger format.
-- [ ] The skill defines tracker/workpad summary expectations.
-- [ ] The workflow pattern works with existing continuation-turn behavior and does not require core
+- [x] A documented experiment workflow exists in repo docs.
+- [x] A dedicated experiment skill exists and is usable by the agent.
+- [x] The skill requires a baseline-first run.
+- [x] The skill defines a standard experiment ledger format.
+- [x] The skill defines tracker/workpad summary expectations.
+- [x] The workflow pattern works with existing continuation-turn behavior and does not require core
       orchestration changes.
 
 ### Safety / product-shape
 
-- [ ] Experiment behavior is opt-in and does not affect ordinary tickets.
-- [ ] No spec changes are required for the MVP.
-- [ ] No core workspace reset/revert behavior is introduced.
-- [ ] The pattern clearly requires an objective evaluation command before use.
+- [x] Experiment behavior is opt-in and does not affect ordinary tickets.
+- [x] No spec changes are required for the MVP.
+- [x] No core workspace reset/revert behavior is introduced.
+- [x] The pattern clearly requires an objective evaluation command before use.
 
 ---
 
@@ -159,6 +193,8 @@ Choose one convention per repo and document it in the workflow/skill.
 
 ### Phase 1 — Document the pattern
 
+**Status:** Complete and merged.
+
 Add the design doc and execution plan. Capture:
 
 - when the pattern should be used,
@@ -169,6 +205,8 @@ Add the design doc and execution plan. Capture:
 **Exit criteria:** docs merged and referenced from the design-doc index.
 
 ### Phase 2 — Add the experiment skill
+
+**Status:** Complete and merged.
 
 Create `.codex/skills/experiment/SKILL.md` with:
 
@@ -187,6 +225,8 @@ indexed or referenced.
 
 ### Phase 3 — Add workflow guidance
 
+**Status:** Complete and merged.
+
 Update `elixir/WORKFLOW.md` or related prompt docs so repos can opt into the experiment pattern.
 
 Suggested guidance:
@@ -201,6 +241,8 @@ Suggested guidance:
 orchestrator features.
 
 ### Phase 4 — Pilot on a real optimization ticket
+
+**Status:** Pending.
 
 Use the pattern on one issue in a benchmark-driven repo.
 

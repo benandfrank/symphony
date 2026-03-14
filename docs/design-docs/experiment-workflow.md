@@ -1,6 +1,6 @@
 # Experiment Workflow — Design Decision
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-03-11
 
 ---
