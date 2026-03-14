@@ -271,6 +271,8 @@ worth designing. This should come after real usage proves the need.
 
 - `docs/design-docs/experiment-workflow.md`
 - `docs/exec-plans/experiment-workflow.md`
-- `.codex/skills/experiment/SKILL.md` (future implementation phase)
-- workflow guidance for opt-in experiment tickets (future implementation phase)
+- `.codex/skills/experiment/SKILL.md`
+- `elixir/WORKFLOW.md` guidance for opt-in experiment tickets
+- `docs/examples/experiment-results.tsv`
+- `docs/examples/experiment-workpad-summary.md`
 - one pilot report from a benchmark-driven ticket (future validation phase)
