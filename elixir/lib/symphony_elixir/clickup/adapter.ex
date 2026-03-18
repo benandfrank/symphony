@@ -27,9 +27,17 @@ defmodule SymphonyElixir.ClickUp.Adapter do
   def create_comment(issue_id, body, opts \\ []) do
     Keyword.get(opts, :rest_fun, &Client.rest/3).("POST", "/task/#{issue_id}/comment", %{"comment_text" => body})
     |> case do
-      {:ok, %{"id" => comment_id}} -> {:ok, comment_id}
-      {:ok, resp} -> {:error, {:unexpected_response, resp}}
-      {:error, _reason} = error -> error
+      {:ok, %{"id" => comment_id}} when is_binary(comment_id) and comment_id != "" ->
+        {:ok, comment_id}
+
+      {:ok, %{"id" => comment_id}} when is_integer(comment_id) ->
+        {:ok, Integer.to_string(comment_id)}
+
+      {:ok, resp} ->
+        {:error, {:unexpected_response, resp}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
