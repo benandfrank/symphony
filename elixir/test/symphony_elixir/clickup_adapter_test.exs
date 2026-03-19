@@ -143,6 +143,22 @@ defmodule SymphonyElixir.ClickUp.AdapterTest do
       assert {:ok, "comment-1"} = result
     end
 
+    test "create_comment normalizes integer comment ids to strings" do
+      # Arrange
+      clickup_workflow!()
+
+      # Act
+      result =
+        Adapter.create_comment("task-42", "hello",
+          rest_fun: fn _method, _path, _body ->
+            {:ok, %{"id" => 12_345}}
+          end
+        )
+
+      # Assert
+      assert {:ok, "12345"} = result
+    end
+
     test "create_comment returns missing token error when token is absent" do
       # Arrange
       clickup_workflow!(tracker_api_token: nil)
